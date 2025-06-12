@@ -1,13 +1,14 @@
-numberOfParticipants = 43;
+% numberOfParticipants = 43;
+numberOfParticipants = 3;
 numGestureRepPerPar = 28;
 uniqueGestures = 7;
 numSensors = 24;
 numFeatures = 18;
 
-k = cell(numSensors,numFeatures);
-finalTable = cell2table(repmat({k}, numberOfParticipants*numGestureRepPerPar, uniqueGestures));
+% Create the cell content
+k = cell(numSensors, numFeatures);
+finalCellArray = repmat({k}, numberOfParticipants * numGestureRepPerPar, uniqueGestures);  % 84×7 cell array
 
-
-folder = pwd;
-fullname = fullfile(folder,' gestureTable.mat');
-save(fullname,"finalTable");
+% Save it to .mat
+fullname = fullfile(pwd, 'gestureTable_clean.mat');
+save(fullname, 'finalCellArray');
