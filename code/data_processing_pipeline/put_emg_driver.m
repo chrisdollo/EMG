@@ -1,10 +1,10 @@
 % for all subjects
 
 % Root folder that contains subject subfolders like emg_gestures-04, emg_gestures-13, ...
-rootDir = '/Users/chrisdollo/Documents/Research/Data copy';
+rootDir = "E:\Chris\EMG\Data\cvs_data_per_subject";
 
 % Where to save per-subject outputs
-outDir = '/Users/chrisdollo/Documents/Research/Data copy/output';
+outDir = "E:\Chris\EMG\Data\non_uniform_data_mat";
 if ~exist(outDir, "dir")
     mkdir(outDir);
 end
@@ -23,7 +23,7 @@ for i = 1:numel(subDirs)
 
     % Only process folders matching the expected naming pattern
     % Extract subject number from "emg_gestures-04" -> "04"
-    tok = regexp(subjectFolderName, "emg_gestures-(\d+)$", "tokens", "once");
+    tok = regexp(subjectFolderName, "subject(\d+)$", "tokens", "once");
     if isempty(tok)
         fprintf("Skipping (name not recognized): %s\n", subjectFolderName);
         continue;
