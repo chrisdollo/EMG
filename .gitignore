@@ -1,2 +1,5 @@
 Data/
+Data copy/
 *.csv
+venv/
+.DS_Store
