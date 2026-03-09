@@ -1,0 +1,419 @@
+================================================================================
+  CLAUDE CODE ANALYSIS — putEMG EMG Gesture Recognition Project
+  Generated: March 2026
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 1 — PIPELINE OVERVIEW (What you built)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Your pipeline is well-structured and logically organized across two stages:
+
+  MATLAB (data_processing_pipeline/)
+  ───────────────────────────────────
+  Step 1 → prime_get_sensor_readings_1.m
+           Reads raw CSV, extracts 24 EMG channels (cols 2–25), zeroes out
+           inactive segments where traj_1 == -1, appends trajectory label.
+           Output: (N x 25) matrix.
+
+  Step 2 → prime_split_raw_files_in_blocks_2.m
+           Detects transitions in the label column (labels >= 0) to
+           isolate action blocks. Output: cell array of blocks.
+
+  Step 3 → prime_organize_action_blocks_in_gesture_3.m
+           Scans each block for labeled gesture regions (1-9), groups
+           them by gesture ID into a (M x 7) table [G1,G2,G3,G6,G7,G8,G9].
+
+  Step 4 → prime_uniformize_gestures_4.m
+           Resamples each repetition to a target length using pchip
+           interpolation. Default target = median of all lengths.
+
+  Batch  → prime_batch_process_raw_dir.m + put_emg_driver.m
+           Iterates over all subject subfolders, runs Steps 1–4,
+           and saves per-subject .mat files.
+
+  Python (data_preprocessing_pipeline.ipynb)
+  ─────────────────────────────────────────────
+  - Resamples gestures to exactly 1500 samples (scipy.signal.resample)
+  - Combines per-subject .mat files into a single dataset
+  - Result: (N x 7) cell table where each cell is (1500 x 24)
+
+  Model (model_latest.ipynb)
+  ──────────────────────────
+  - EEGNet CNN applied to raw (resampled) EMG signals
+  - Input: (batch, 1, 24 channels, 1500 samples)
+  - 7-class classification: gestures G1, G2, G3, G6, G7, G8, G9
+  - 5-fold StratifiedKFold cross-validation for hyperparameter search
+  - Final model trained with best dropout + learning rate found
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 2 — BUGS & ISSUES IN THE MODEL CODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [BUG 1] — mx_acc_model is never updated (create_mod function)
+  ─────────────────────────────────────────────────────────────
+  Location: model_latest.ipynb, cell 15 (create_mod function)
+
+  mx_acc_model is initialized to 0 but is never assigned during the
+  training loop. The print statement always shows "Max Acc: 0.00".
+
+  Fix:
+    Add this line inside the training loop, after acc is computed:
+      if acc > mx_acc_model:
+          mx_acc_model = acc
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [BUG 2] — best_state is saved but never restored
+  ─────────────────────────────────────────────────
+  Location: model_latest.ipynb, cell 15 (create_mod function)
+
+  The model state for the best epoch is saved to `best_state`, but when
+  training ends (or early stops), the model is NOT restored to that best
+  state before returning `es_best`. The function returns the accuracy
+  of the best epoch but the model itself is in the state of the LAST
+  epoch, which may be worse.
+
+  Fix:
+    At the end of create_mod, before return, add:
+      model.load_state_dict(best_state)
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [BUG 3] — Best model from cross-validation is discarded
+  ────────────────────────────────────────────────────────
+  Location: model_latest.ipynb, cell 16 (the CV loop)
+
+  The cross-validation loop finds the best hyperparameters but throws
+  away all trained models. The final model (cell 21) is a completely
+  new model trained from scratch for only 12 fixed epochs. There is no
+  mechanism to track and save the best-performing fold model.
+
+  Impact: You may be leaving accuracy on the table. The best CV fold
+  model, if saved, could already outperform the final retrained model.
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [BUG 4] — Asymmetric padding adds an extra time sample
+  ───────────────────────────────────────────────────────
+  Location: model_latest.ipynb, cell 3 (EEGNet architecture)
+
+  In firstConv: kernel_size=(1,64), padding=(0,32)
+    → output_length = input_length + 2*32 - 64 + 1 = input_length + 1
+
+  In separableConv: kernel_size=(1,16), padding=(0,8)
+    → output_length = input_length + 2*8 - 16 + 1 = input_length + 1
+
+  Both convolutions add one extra time step due to PyTorch's behavior
+  with even kernels. This is non-standard but does NOT crash the model
+  because the flattened size is computed dynamically with a dummy pass.
+  It is harmless, but worth knowing it deviates from the original EEGNet
+  paper's "same" padding intention.
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [BUG 5] — Final training uses fixed 12 epochs with no early stopping
+  ───────────────────────────────────────────────────────────────────────
+  Location: model_latest.ipynb, cell 21
+
+  The final model is trained for exactly 12 epochs with no early stopping
+  and no best-model checkpointing. Looking at your output, accuracy at
+  epoch 11 is 56.79%, while the max was 57.86% at epoch 10. You are
+  returning the epoch 11 model, not the best one.
+
+  Fix: Track and save the best model state during final training:
+    best_final_state = None
+    best_final_acc = 0
+    for epoch in range(N_EPOCHS):
+        ...
+        if acc > best_final_acc:
+            best_final_acc = acc
+            best_final_state = {k: v.clone() for k, v in model_final.state_dict().items()}
+    model_final.load_state_dict(best_final_state)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 3 — METHODOLOGICAL CONCERNS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [CONCERN 1] — No EMG signal preprocessing / filtering
+  ───────────────────────────────────────────────────────
+  Raw EMG signals are passed directly to the model after simple
+  resampling. Standard EMG preprocessing that significantly improves
+  classification includes:
+    - Bandpass filter: 20–500 Hz (removes motion artifacts and noise)
+    - Notch filter: 50/60 Hz (removes power line interference)
+    - Per-channel z-score normalization (zero mean, unit variance)
+
+  The putEMG paper reports 90% accuracy with SVM + RMS features.
+  Without even basic filtering, your raw signals carry noise that
+  the model must learn to ignore.
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [CONCERN 2] — No input normalization
+  ─────────────────────────────────────
+  EMG amplitude varies greatly between subjects (skin impedance,
+  electrode placement, muscle size). Without per-channel normalization,
+  a sample from subject 03 and subject 07 may have very different
+  amplitude ranges, making it harder for the model to learn
+  subject-independent patterns.
+
+  Fix: Apply z-score normalization per sample, per channel:
+    # After loading X:
+    mean = X.mean(axis=-1, keepdims=True)  # over time axis
+    std  = X.std(axis=-1, keepdims=True)
+    X_norm = (X - mean) / (std + 1e-8)
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [CONCERN 3] — Aggressive temporal downsampling (10,248 → 1500 samples)
+  ────────────────────────────────────────────────────────────────────────
+  The original gestures average ~10,248 samples (at 5120 Hz, that is
+  ~2 seconds of data). You downsample to 1500 samples — a reduction of
+  ~6.8x — which corresponds to an effective sampling rate of ~750 Hz.
+  While this is above the Nyquist for EMG (~500 Hz), the aggressive
+  resampling may distort the temporal dynamics of fast transients that
+  discriminate similar gestures.
+
+  Suggestion: Try 2048 or 4096 samples, or better yet, use sliding
+  windows (see Section 4 for details).
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [CONCERN 4] — Subject-mixing in train/test split (data leakage risk)
+  ──────────────────────────────────────────────────────────────────────
+  Your train_test_split is a random 80/20 split across ALL subjects.
+  This means the training and test sets can contain different
+  repetitions from the SAME subject. This inflates accuracy because
+  the model has "seen" that subject's signal characteristics at
+  training time.
+
+  A more rigorous evaluation would hold out complete subjects:
+    # Leave-one-subject-out (LOSO) cross-validation
+    This tests whether the model generalizes to UNSEEN users —
+    the real-world requirement for a BCI/prosthetics application.
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [CONCERN 5] — Small dataset (only 5 of 44 subjects used)
+  ──────────────────────────────────────────────────────────
+  Only 5 subjects are used out of 44 available in putEMG. With
+  5 subjects × 40 repetitions × 7 gestures = 1,400 samples total,
+  a deep learning model is severely data-starved. EEGNet and similar
+  architectures require substantially more data to generalize.
+
+  Adding more subjects (even just 10–15 total) would likely improve
+  accuracy significantly.
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [CONCERN 6] — No data augmentation
+  ────────────────────────────────────
+  With only 1,400 samples, augmentation is essential for deep learning.
+  EMG-specific augmentation techniques include:
+    - Gaussian noise injection (simulate electrode variability)
+    - Time-shifting (random circular shift along time axis)
+    - Amplitude scaling (multiply channels by random factor 0.8–1.2)
+    - Channel dropout (randomly zero a channel during training)
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [CONCERN 7] — EEGNet was designed for EEG, not EMG
+  ─────────────────────────────────────────────────────
+  EEGNet was developed and validated for EEG signals. EMG has
+  different characteristics:
+    - Higher frequency content (up to 500 Hz vs ~100 Hz for EEG)
+    - Different spatial correlation structure across electrodes
+    - Stronger muscle artifact vs. neural origin
+
+  EEGNet can still work for EMG (and your results show it does),
+  but architectures designed for EMG — like TCN (Temporal Convolutional
+  Network) or CNN+LSTM hybrids — may perform better.
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  [CONCERN 8] — No learning rate scheduling
+  ───────────────────────────────────────────
+  A constant learning rate of 1e-3 throughout all epochs is suboptimal.
+  Models typically benefit from reducing the LR as training progresses
+  to allow fine-tuning without overshooting.
+
+  Suggestion:
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=max_epochs
+    )
+    # Call scheduler.step() after each epoch
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 4 — IMPROVEMENTS TO INCREASE ACCURACY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Listed roughly in order of expected impact:
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 1 — Add per-channel z-score normalization  (High Impact)│
+  └─────────────────────────────────────────────────────────────────────┘
+  Normalize each channel to zero mean and unit variance over the time
+  dimension before passing to the model. This is the single easiest
+  change that typically gives an immediate accuracy boost.
+
+  Code change in BCIDataset or before train_test_split:
+    mean = X.mean(axis=3, keepdims=True)
+    std  = X.std(axis=3, keepdims=True)
+    X    = (X - mean) / (std + 1e-8)
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 2 — Apply EMG bandpass filtering     (High Impact)      │
+  └─────────────────────────────────────────────────────────────────────┘
+  Filter the raw EMG signal before resampling/training. This removes
+  motion artifacts and power line noise that confuse the classifier.
+
+  In data_preprocessing_pipeline.ipynb:
+    from scipy.signal import butter, filtfilt
+    def bandpass_filter(signal, lowcut=20, highcut=500, fs=5120, order=4):
+        nyq = 0.5 * fs
+        b, a = butter(order, [lowcut/nyq, highcut/nyq], btype='band')
+        return filtfilt(b, a, signal, axis=0)
+
+  Apply this to each gesture segment BEFORE resampling to 1500 samples.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 3 — Use more subjects               (High Impact)       │
+  └─────────────────────────────────────────────────────────────────────┘
+  The putEMG dataset has 44 subjects. You are using 5.
+  Add at least 10–15 subjects to give the model sufficient diversity.
+  The batch processing pipeline you built already supports this —
+  just process more subject folders and include them in the combine step.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 4 — Add data augmentation           (Medium-High Impact)│
+  └─────────────────────────────────────────────────────────────────────┘
+  Augment training samples by applying random perturbations. Add an
+  augmentation step inside BCIDataset or in the DataLoader collate_fn:
+
+    class BCIDataset(Dataset):
+        def __init__(self, X, y, augment=False):
+            ...
+            self.augment = augment
+
+        def __getitem__(self, idx):
+            x, y = self.X[idx], self.y[idx]
+            if self.augment:
+                # Random Gaussian noise
+                x = x + torch.randn_like(x) * 0.01
+                # Random amplitude scaling
+                scale = 0.8 + torch.rand(1) * 0.4
+                x = x * scale
+            return x, y
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 5 — Train for more epochs + LR scheduling (Medium Impact│
+  └─────────────────────────────────────────────────────────────────────┘
+  Your final model training stops at 12 epochs and the loss is still
+  decreasing at that point (0.59 at epoch 11). Train for 50–100 epochs
+  with cosine annealing or ReduceLROnPlateau:
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='max', factor=0.5, patience=5
+    )
+    # After evaluate(): scheduler.step(acc)
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 6 — Save and restore best model weights (Medium Impact) │
+  └─────────────────────────────────────────────────────────────────────┘
+  Fix BUG 2 and BUG 5 described above. Always evaluate on the
+  best checkpoint, not the last epoch. This alone might recover 1–3%.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 7 — Sliding window approach         (Medium Impact)     │
+  └─────────────────────────────────────────────────────────────────────┘
+  Instead of treating each full gesture as one sample, use a sliding
+  window (e.g. 256 samples, 128 overlap). This creates many more
+  training examples from each repetition and can improve robustness.
+
+  Typical parameters for EMG at 5120 Hz:
+    window_size = 512 samples (~100 ms)
+    overlap     = 256 samples (50%)
+
+  After resampling to an effective ~750 Hz (your current 1500 samples),
+  that becomes window_size ~ 75 samples.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 8 — Try handcrafted features + SVM  (High Impact)       │
+  └─────────────────────────────────────────────────────────────────────┘
+  The original putEMG paper reports 90% accuracy using SVM with RMS
+  features. As a baseline and upper-bound reference, try computing
+  per-channel time-domain features on each window:
+
+    Features per window per channel:
+      - RMS    = sqrt(mean(x^2))
+      - MAV    = mean(|x|)
+      - WL     = sum(|diff(x)|)
+      - ZC     = zero-crossing count
+      - SSC    = slope sign change count
+
+  Then flatten (5 features × 24 channels = 120-dim vector) and
+  classify with SVM (RBF kernel). This gives you a strong baseline
+  to compare your deep model against.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 9 — Switch to TCN or CNN+LSTM architecture (Low-Medium) │
+  └─────────────────────────────────────────────────────────────────────┘
+  For EMG time-series, Temporal Convolutional Networks (TCN) have shown
+  strong results. An LSTM or GRU on top of the CNN feature extractor
+  can also capture temporal dependencies across the gesture.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ IMPROVEMENT 10 — Subject-independent evaluation (Rigor)             │
+  └─────────────────────────────────────────────────────────────────────┘
+  For a publication-quality result, evaluate with LOSO (Leave-One-
+  Subject-Out) cross-validation. This truly tests generalization to
+  new users and is the standard benchmark in the BCI/EMG literature.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 5 — CURRENT ACCURACY CONTEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Current result (model_latest.ipynb):
+    - CV best accuracy:   ~64.9% (5-fold on train set)
+    - Final test accuracy: ~57–58%
+
+  Reference benchmarks:
+    - Random chance (7 classes):       14.3%
+    - putEMG paper (SVM + RMS):        ~90%
+    - Typical deep learning on putEMG: 80–92%
+
+  The gap between your ~57% and the paper's 90% is primarily explained
+  by: (1) no signal filtering, (2) no normalization, (3) only 5 subjects,
+  and (4) using raw signals vs. engineered features. Addressing items 1–3
+  above should bring you to the 75–85% range.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SUMMARY TABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Priority  Item                                     Type         Est. Impact
+  ────────  ───────────────────────────────────────  ──────────   ───────────
+  1         Per-channel z-score normalization        Bug fix      +5–10%
+  2         EMG bandpass filter (20–500 Hz)          Improvement  +5–10%
+  3         Fix: restore best model weights          Bug fix      +2–4%
+  4         Add more subjects (5 → 15+)              Improvement  +5–15%
+  5         Data augmentation (noise, scaling)       Improvement  +3–7%
+  6         More epochs + LR scheduler               Improvement  +2–5%
+  7         Fix: mx_acc_model never updated          Bug          cosmetic
+  8         Fix: best_state never restored in CV     Bug fix      +1–3%
+  9         Sliding window data expansion            Improvement  +3–8%
+  10        Handcrafted features + SVM baseline      Approach     +20–30%*
+  11        Subject-independent (LOSO) evaluation    Rigor        n/a
+
+  * SVM + features is a different approach, not a direct upgrade of your
+    current deep model, but useful as a reference and potentially final
+    approach depending on your research goals.
+
+================================================================================
