@@ -18,7 +18,9 @@ The **putEMG** dataset ([Kaczmarek et al., 2019](https://www.mdpi.com/1424-8220/
 | Gesture duration   | 1 s (short protocol) and 3 s (long protocol)  |
 | File format        | CSV per recording session                     |
 
-The 24 electrodes are arranged in a sparse grid around the forearm, enabling electrode-placement-independent classification. Each CSV file contains columns for all 24 channels plus a trajectory label column encoding the current gesture ID (1–9), rest (0), or ignore (−1).
+The 24 electrodes are arranged in a sparse grid around the forearm. Each CSV file contains columns for all 24 channels plus a trajectory label column encoding the current gesture ID (1–9), rest (0), or ignore (−1).
+
+Currently trained and evaluated on **5 subjects** (subjects 03–07).
 
 ---
 
@@ -27,14 +29,14 @@ The 24 electrodes are arranged in a sparse grid around the forearm, enabling ele
 ```
 putEMG prime/
 ├── Data/
-│   ├── raw/                          # Raw CSV files from putEMG
-│   ├── data_5_subjects/              # Per-subject processed .mat files
-│   │   └── total/
-│   │       └── data_for_5_subject.mat   # Combined 5-subject dataset
-│   └── combined_per_per_subject/     # Intermediate combined outputs
+│   └── X/
+│       ├── gesture_per_subject_data_5/     # Per-subject raw .mat files (from MATLAB)
+│       ├── preprocessed_file_5/            # Per-subject preprocessed .mat files
+│       └── model_ready_5/
+│           └── model_ready_5_sub.mat       # Combined 5-subject model-ready dataset
 │
 ├── code/
-│   ├── data_processing_pipeline/     # MATLAB preprocessing pipeline
+│   ├── data_processing_pipeline/           # Stage 1 — MATLAB pipeline
 │   │   ├── prime_get_sensor_readings_1.m
 │   │   ├── prime_split_raw_files_in_blocks_2.m
 │   │   ├── prime_organize_action_blocks_in_gesture_3.m
@@ -42,162 +44,190 @@ putEMG prime/
 │   │   ├── prime_batch_process_raw_dir.m
 │   │   └── put_emg_driver.m
 │   │
-│   ├── data_preprocessing_pipeline.ipynb   # Python resampling + combining
-│   └── model_latest.ipynb                  # EEGNet model + training
+│   ├── 2_data_preprocessing_pipeline.ipynb # Stage 2 — Python signal processing
+│   ├── 3_model_evaluation.ipynb            # Stage 3 — Multi-model training & evaluation
+│   ├── 4_model_retrain_full.ipynb          # Stage 4 — Retrain best model on full dataset
+│   │
+│   ├── models.py                           # All model class definitions (importable)
+│   ├── data_utils.py                       # Data loading, splits, loaders, train/eval functions
+│   │
+│   ├── weights/                            # Saved model checkpoints (.pt files)
+│   └── archive/                            # Older/superseded notebooks
 │
 └── README.md
 ```
 
 ---
 
-## Pipeline
-
-The pipeline runs in two stages: MATLAB preprocessing, then Python model training.
-
-### Stage 1 — MATLAB Preprocessing
-
-The four MATLAB functions form a sequential pipeline. They are chained together and batched by `prime_batch_process_raw_dir.m` and `put_emg_driver.m`.
+## Pipeline Overview
 
 ```
-Raw CSV  →  [Step 1]  →  [Step 2]  →  [Step 3]  →  .mat file
+Raw CSVs
+   │
+   ▼
+[Stage 1 — MATLAB]  data_processing_pipeline/
+   │  Extract channels → split into blocks → organize by gesture → save per-subject .mat
+   │
+   ▼
+[Stage 2 — Python]  2_data_preprocessing_pipeline.ipynb
+   │  Bandpass filter (20–500 Hz) → resample to 1500 samples → z-score normalize → combine subjects
+   │
+   ▼
+[Stage 3 — Python]  3_model_evaluation.ipynb
+   │  Train & evaluate 5 architectures → save best model weights to weights/
+   │
+   ▼
+[Stage 4 — Python]  4_model_retrain_full.ipynb
+      Load best checkpoint → retrain on full dataset → save final weights to weights/
 ```
+
+---
+
+## Stage 1 — MATLAB Preprocessing
+
+The four MATLAB functions form a sequential pipeline, chained by `prime_batch_process_raw_dir.m` and `put_emg_driver.m`.
 
 #### Step 1: `prime_get_sensor_readings_1.m`
-
 Reads a raw putEMG CSV and returns a cleaned sensor matrix.
-
 - Extracts the 24 EMG channel columns (columns 2–25)
 - Reads the trajectory label column (column 26)
-- Zeroes out all rows where the label is `−1` (subject was allowed to relax between gestures)
-- Appends the label column as column 25
+- Zeroes out rows where the label is `−1` (relax periods)
+- Appends the label as column 25
 
-**Input:** CSV file path
-**Output:** Matrix of shape `(N × 25)` — 24 EMG channels + label
-
----
+**Output:** `(N × 25)` — 24 EMG channels + label
 
 #### Step 2: `prime_split_raw_files_in_blocks_2.m`
+Splits the sensor matrix into action blocks by detecting transitions in the label column.
+- Finds contiguous segments where `label >= 0`
 
-Splits the sensor matrix into separate action blocks by detecting transitions in the label column.
-
-- Finds contiguous segments where `label >= 0` (valid recording periods)
-- Each segment becomes one "action block"
-
-**Input:** `(N × 25)` sensor matrix
-**Output:** Cell array of action blocks, each of shape `(Mi × 25)`
-
----
+**Output:** Cell array of action blocks, each `(Mi × 25)`
 
 #### Step 3: `prime_organize_action_blocks_in_gesture_3.m`
-
-Scans each action block for individual gesture executions and organizes them into a structured table.
-
-- Within each block, detects sub-segments labeled 1–9
-- Identifies gesture ID using mode of labels in the segment (robust to label noise)
-- Only keeps gestures in the set `{1, 2, 3, 6, 7, 8, 9}` (skips 4, 5)
-- Accumulates repetitions per gesture across all blocks
+Scans each action block for gesture executions and organizes them into a structured table.
+- Detects sub-segments labeled 1–9 within each block
+- Identifies gesture ID using mode of labels (robust to noise)
+- Keeps only gestures in `{1, 2, 3, 6, 7, 8, 9}` (skips 4, 5)
 - Returns a rectangular cell table with columns `G1, G2, G3, G6, G7, G8, G9`
 
-**Input:** Cell array of action blocks
-**Output:** MATLAB table of shape `(M × 7)` — each cell is one gesture repetition `(samples × 24)`
+**Output:** MATLAB table `(M × 7)` — each cell is one gesture repetition `(samples × 24)`
+
+#### Step 4: `prime_batch_process_raw_dir.m` + `put_emg_driver.m`
+Orchestrates the pipeline across all subjects.
+- `prime_batch_process_raw_dir.m`: runs Steps 1–3 on every CSV in a folder
+- `put_emg_driver.m`: iterates over subject subfolders, saves per-subject `.mat` files
+
+Each `.mat` contains `combinedCell` — shape `(N × 7)`, each cell `(M_raw × 24)`.
 
 ---
 
-#### Step 4 (implicit): `prime_batch_process_raw_dir.m` + `put_emg_driver.m`
+## Stage 2 — Python Preprocessing (`2_data_preprocessing_pipeline.ipynb`)
 
-Orchestrates the pipeline across all subjects and sessions.
+Takes per-subject `.mat` files and produces a uniform, model-ready dataset.
 
-- `prime_batch_process_raw_dir.m`: runs Steps 1–3 on every CSV in a folder, concatenates tables row-wise
-- `put_emg_driver.m`: iterates over all subject subfolders, calls the batch processor, and saves per-subject `.mat` files
+#### Processing chain (per gesture repetition)
 
-Each `.mat` file contains a `combinedCell` variable — a cell array of shape `(N × 7)` where each cell holds one gesture repetition of shape `(M_raw × 24)`. Lengths vary per repetition at this stage.
+```
+Raw (M_raw × 24) at 5120 Hz
+    │
+    ├─ Bandpass filter 20–500 Hz  (zero-phase Butterworth, order 4)
+    │
+    ├─ Resample to 1500 samples   (scipy.signal.resample, per channel)
+    │
+    └─ Per-channel z-score normalization  (zero mean, unit variance over time)
+```
+
+Both the bandpass filter and z-score normalization are toggleable via `APPLY_BANDPASS` and `APPLY_ZSCORE` flags in the config cell.
+
+#### Combining subjects
+Processed per-subject `.mat` files are stacked into a single combined file saved as `model_ready_5_sub.mat`.
+
+**Final dataset:** `(200 × 7)` cell table — 200 repetitions × 7 gestures = **1,400 samples**, each `(1500 × 24)`.
 
 ---
 
-### Stage 2 — Python Preprocessing (`data_preprocessing_pipeline.ipynb`)
+## Stage 3 — Model Training & Evaluation (`3_model_evaluation.ipynb`)
 
-Takes the per-subject `.mat` files and prepares a uniform dataset for the model.
+Trains and evaluates 5 architectures on the same data splits. Data loading, splitting, and all training/evaluation functions are imported from `data_utils.py`. Model definitions are imported from `models.py`.
 
-#### Uniformization
+#### Data splits
 
-Each gesture repetition has a different raw length (min ~5,124, max ~15,373 samples, median ~10,248). All repetitions are resampled to exactly **1500 samples** per channel using `scipy.signal.resample`.
+| Split | Size  | Purpose |
+|-------|-------|---------|
+| Train | 1,008 | Model training |
+| Dev   | 112   | Early stopping signal |
+| Test  | 280   | Final held-out evaluation |
 
+Splits use stratified sampling (`random_state=42`). The test set is never seen during training.
+
+#### Models
+
+| # | Model | Description |
+|---|-------|-------------|
+| 1 | **EEGNet** | Depthwise separable CNN (Lawhern et al., 2018) |
+| 2 | **ShallowConvNet** | Temporal + spatial conv, square/log nonlinearity (Schirrmeister et al., 2017) |
+| 3 | **DeepConvNet** | 4 stacked conv blocks, increasing filter depth (Schirrmeister et al., 2017) |
+| 4 | **CNN_LSTM** | Spatial CNN → temporal pooling → 2-layer LSTM |
+| 5 | **EMG_TCN** | Spatial mixing + 4 dilated temporal conv residual blocks |
+
+All models accept input `(batch, 1, 24, 1500)` and output `(batch, 7)` logits.
+
+#### Training setup
+
+- **Optimizer:** Adam, initial LR = `1e-3`
+- **LR scheduling:** `ReduceLROnPlateau` — halves LR after 5 epochs of no dev accuracy improvement, floor `1e-6`
+- **Early stopping:** patience = 15 epochs, min delta = 0.002
+- **Epoch limit:** 50
+- **Best-state checkpointing:** best dev accuracy weights restored before test evaluation
+
+#### Results (5 subjects, 1,400 samples)
+
+| Model | Test Accuracy |
+|-------|--------------|
+| EMG_TCN | **93.57%** |
+| EEGNet | 86.43% |
+| ShallowConvNet | 81.07% |
+| DeepConvNet | 59.64% |
+| CNN_LSTM | 51.43% |
+| Random baseline | 14.3% |
+| putEMG paper (SVM + RMS) | ~90% |
+
+Best model weights are saved to `weights/<ModelName>_best.pt`.
+
+---
+
+## Stage 4 — Full-Dataset Retraining (`4_model_retrain_full.ipynb`)
+
+Loads a checkpoint from `weights/` and retrains that model on **all available data** (no held-out test set) to produce final deployment weights.
+
+- Set `CHECKPOINT_PATH` to any `.pt` file in `weights/`
+- Model architecture and dropout are read automatically from the checkpoint
+- Same training setup as Stage 3 (ReduceLROnPlateau + early stopping), monitored on training loss
+- Final weights saved as `weights/<ModelName>_final.pt`
+
+---
+
+## Shared Modules
+
+### `models.py`
+Contains all five model class definitions. Import in any notebook:
 ```python
-# Resamples each (M × 24) cell to (1500 × 24)
-resampled = signal.resample(gesture_data[:, ch], target_length=1500)
+from models import EEGNet, ShallowConvNet, DeepConvNet, CNN_LSTM, EMG_TCN
 ```
 
-#### Combining Subjects
-
-Per-subject `.mat` files are stacked vertically into a single combined cell array and saved as `data_for_5_subject.mat`.
-
-**Final dataset shape:** `(200 × 7)` cell table — 200 repetitions per gesture, 7 gestures (1,400 total samples), each of shape `(1500 × 24)`.
-
----
-
-### Stage 3 — Model Training (`model_latest.ipynb`)
-
-#### Data Loading
-
-The combined `.mat` file is loaded and flattened into arrays:
-
+### `data_utils.py`
+Handles data loading, splitting, DataLoaders, and training/evaluation functions. Executes data loading at import time and exports ready-to-use variables:
+```python
+from data_utils import train, evaluate, evaluateFinal
+from data_utils import X_train, X_dev, X_test, y_train, y_dev, y_test
+from data_utils import train_loader, dev_loader, test_loader, full_loader
 ```
-X: (1400, 1, 24, 1500)   — (samples, 1, channels, time)
-Y: (1400,)               — integer class labels 0–6
-```
-
-An 80/20 stratified train/test split is applied (1120 train / 280 test).
-
-#### Model Architecture — EEGNet
-
-The model is an **EEGNet** ([Lawhern et al., 2018](https://arxiv.org/abs/1611.08024)), a compact CNN originally designed for EEG classification, adapted here for EMG.
-
-```
-Input: (batch, 1, 24, 1500)
-    │
-    ├─ Temporal Conv2D (1 → F1=8 filters, kernel 1×64) + BatchNorm
-    │
-    ├─ Depthwise Conv2D (spatial across 24 channels, groups=F1) + BN + ELU
-    │   └─ AvgPool 1×4  →  time: 1500 → 375
-    │
-    ├─ Separable Conv2D (F1*D=16 filters, kernel 1×16) + BN + ELU
-    │   └─ AvgPool 1×8  →  time: ~47
-    │
-    └─ Flatten → Linear → 7 classes
-```
-
-| Hyperparameter | Value  |
-|----------------|--------|
-| F1 (temporal filters) | 8 |
-| D (depth multiplier)  | 2 |
-| F2 (separable filters)| 16 |
-| Dropout rate   | 0.1    |
-| Learning rate  | 1e-3   |
-| Optimizer      | Adam   |
-| Loss           | CrossEntropyLoss |
-| Batch size     | 16     |
-
-#### Training
-
-1. **Hyperparameter search** via 5-fold StratifiedKFold cross-validation on the training set. Dropout rates `[0.1, 0.2, 0.3]` and learning rates are tested. Best combination: `dropout=0.1, lr=1e-3`.
-
-2. **Final model** trained from scratch on the full training set (1120 samples) for 12 epochs using the best hyperparameters.
-
-3. **Evaluation** on the held-out test set (280 samples), with a confusion matrix.
-
-#### Results
-
-| Split     | Accuracy |
-|-----------|----------|
-| CV (train)| ~64.9%   |
-| Test set  | ~57–58%  |
 
 ---
 
 ## Requirements
 
 ### MATLAB
-- MATLAB R2019b or later (uses `containers.Map`, `table`, `interp1`)
+- MATLAB R2019b or later (`containers.Map`, `table`, `interp1`)
 
 ### Python
 ```
@@ -208,7 +238,6 @@ scikit-learn
 torch
 ```
 
-Install Python dependencies:
 ```bash
 pip install scipy numpy matplotlib scikit-learn torch
 ```
@@ -218,23 +247,23 @@ pip install scipy numpy matplotlib scikit-learn torch
 ## How to Run
 
 ### 1. MATLAB Preprocessing
-
 ```matlab
 % Edit put_emg_driver.m to set your data paths, then run:
 run('code/data_processing_pipeline/put_emg_driver.m')
 ```
 
-This produces one `.mat` file per subject in your output directory.
+### 2. Python Signal Processing
+Open and run `code/2_data_preprocessing_pipeline.ipynb`.
+Update `INPUT_DIR`, `OUTPUT_DIR`, and `COMBINED_OUT` paths in the config cell.
 
-### 2. Python Uniformization + Combining
+### 3. Model Training & Evaluation
+Open and run `code/3_model_evaluation.ipynb`.
+Adjust `MAX_EPOCHS`, `DROPOUT`, `LR`, and other hyperparameters in the config cell.
+Best model weights are saved automatically to `code/weights/`.
 
-Open and run `code/data_preprocessing_pipeline.ipynb`.
-Update `input_dir` and `output_file_path` to match your local paths.
-
-### 3. Model Training
-
-Open and run `code/model_latest.ipynb`.
-Update `file_path` in the data loading cell to point to your combined `.mat` file.
+### 4. Full-Dataset Retraining (optional)
+Open `code/4_model_retrain_full.ipynb`.
+Set `CHECKPOINT_PATH` to the desired `.pt` file, then run all cells.
 
 ---
 
@@ -242,4 +271,5 @@ Update `file_path` in the data loading cell to point to your combined `.mat` fil
 
 - Kaczmarek, P., Mankowski, T., Tomczynski, J. (2019). **putEMG — A Surface Electromyography Hand Gesture Recognition Dataset.** *Sensors, 19*(16), 3548. https://doi.org/10.3390/s19163548
 - Lawhern, V. J., et al. (2018). **EEGNet: A Compact Convolutional Neural Network for EEG-based Brain-Computer Interfaces.** *Journal of Neural Engineering.* https://arxiv.org/abs/1611.08024
-- putEMG dataset download: https://biolab.put.poznan.pl/putemg-dataset/
+- Schirrmeister, R. T., et al. (2017). **Deep learning with convolutional neural networks for EEG decoding and visualization.** *Human Brain Mapping.* https://doi.org/10.1002/hbm.23730
+- putEMG dataset: https://biolab.put.poznan.pl/putemg-dataset/
