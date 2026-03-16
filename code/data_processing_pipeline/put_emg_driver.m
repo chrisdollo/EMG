@@ -1,10 +1,10 @@
 % for all subjects
 
 % Root folder that contains subject subfolders like emg_gestures-04, emg_gestures-13, ...
-rootDir = "E:\Chris\EMG\Data\cvs_data_per_subject";
+rootDir = '/Users/chrisdollo/Documents/Research/putEMG prime/Data/raw_data_5';
 
 % Where to save per-subject outputs
-outDir = "E:\Chris\EMG\Data\non_uniform_data_mat";
+outDir = "/Users/chrisdollo/Documents/Research/putEMG prime/Data/gesture_per_subject_data_5";
 if ~exist(outDir, "dir")
     mkdir(outDir);
 end
