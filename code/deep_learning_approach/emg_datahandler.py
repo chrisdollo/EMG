@@ -30,9 +30,10 @@ class BCIDataset(Dataset):
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────
-def load_data_method_1(file_path):
+def load_data(file_path):
     """
-    Original method - iterates gesture_type then row.
+    Load the combined model-ready .mat file.
+    Returns X (N, 1500, 24) float32 and Y (N,) int64.
     """
     mat_file   = scipy.io.loadmat(file_path)
     cell_array = mat_file["combinedCell"]
@@ -92,7 +93,7 @@ def evaluateFinal(model, test_loader, device):
             pred = model(X).argmax(dim=1)
             correct   += (pred == y).sum().item()
             total     += y.size(0)
-            actual    = torch.cat((actual,    y.cpu()),   dim=0)
+            actual    = torch.cat((actual,    y.cpu()),    dim=0)
             predicted = torch.cat((predicted, pred.cpu()), dim=0)
 
         print(np.unique(predicted.numpy(), return_counts=True))
@@ -104,7 +105,7 @@ def evaluateFinal(model, test_loader, device):
 
 
 # ── Load & split data ─────────────────────────────────────────────────────────
-X, Y = load_data_method_1(FILE_PATH)
+X, Y = load_data(FILE_PATH)
 
 # Reshape to (N, 1, channels, samples) — model input format
 X = X[:, np.newaxis, :, :]
@@ -130,5 +131,5 @@ train_loader = DataLoader(BCIDataset(X_train, y_train), batch_size=BATCH_SIZE, s
 dev_loader   = DataLoader(BCIDataset(X_dev,   y_dev),   batch_size=BATCH_SIZE, shuffle=False)
 test_loader  = DataLoader(BCIDataset(X_test,  y_test),  batch_size=BATCH_SIZE, shuffle=False)
 
-# Full dataset loader — used by 4_model_retrain_full.ipynb
+# Full dataset loader — used by the retrain section of model.ipynb
 full_loader  = DataLoader(BCIDataset(X, Y), batch_size=BATCH_SIZE, shuffle=True)

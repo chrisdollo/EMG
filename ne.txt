@@ -1,0 +1,32 @@
+- 24 channels extract 8 features
+
+
+
+Before we choose the 8 channels take all the features choose a model and achieve 80/90% accuracy
+
+PHASE 1: feature extraction 
+
+- libEMG
+- window size of 250
+- Move window by 50
+- 26 windows * 8 features = 208 features 
+
+PHHASE 2: Train the model
+
+MODEL sELECTION:
+- svm
+- other models
+- find 8 clusters that we can use
+After this we have a baseline
+
+
+Select channels from those 8 clusters
+train a new model with 8 features 8 channels
+Reducing the number of channels
+- this is where clustering comes in
+
+
+Compare to see how it does with the baseline
+
+
+new subject test data
