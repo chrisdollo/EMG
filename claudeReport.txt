@@ -1,0 +1,99 @@
+putEMG Prime — Project Report
+==============================
+
+─── DATASET ──────────────────────────────────────────────────────────────────
+
+Source: putEMG (Poznan University of Technology, Kaczmarek et al. 2019)
+Full dataset: 44 able-bodied subjects, 24 sEMG channels, 5120 Hz
+Active gestures: 7 classes — G1, G2, G3, G6, G7, G8, G9
+Protocol: ~40 repetitions per gesture per subject (2 sessions × 5 series × ~4 reps)
+Currently used: 5 subjects (03–07)
+
+Raw files: one CSV per recording session, per subject.
+  Columns: 24 EMG channels + 1 trajectory label (0=rest, 1–9=gesture, −1=ignore)
+  Location: external / per-subject subfolders
+
+─── PIPELINE & FILES ─────────────────────────────────────────────────────────
+
+Stage 1 — MATLAB gesture splitting         code/deep_learning_approach/1_gesture_splitting_pipeline/
+  CSV → extract 24 channels → detect gesture blocks → combinedCell (N_reps × 7)
+  Output: Data/X/gesture_per_subject_data_5/emg_gestures_SS_combined_non_uniform.mat
+
+Stage 2 — Python signal preprocessing     code/deep_learning_approach/2_data_preprocessing_pipeline.ipynb
+  Bandpass 20–500 Hz → resample to 1500 samples → z-score normalize → combine subjects
+  Output: Data/X/preprocessed_file_5/ and Data/X/model_ready_5/model_ready_5_sub.mat
+  Final shape: 1400 samples (200 reps × 7 gestures), each (1500 × 24)
+
+─── APPROACH A: DEEP LEARNING ────────────────────────────────────────────────
+
+Input: model_ready_5_sub.mat  →  (batch, 1, 24, 1500) tensors
+Models: EEGNet, ShallowConvNet, DeepConvNet, CNN_LSTM, EMG_TCN
+Best result: EMG_TCN — 93.57% test accuracy (5 subjects)
+Files: code/deep_learning_approach/3_model_evaluation.ipynb
+       code/deep_learning_approach/4_model_retrain_full.ipynb
+       code/deep_learning_approach/models.py
+       code/deep_learning_approach/data_utils.py
+       code/deep_learning_approach/weights/EMG_TCN_best.pt
+
+─── APPROACH B: FEATURE EXTRACTION ──────────────────────────────────────────
+
+Input: preprocessed per-subject .mat files (1500 samples × 24 channels per rep)
+Sliding window: size=250 samples (~49 ms), shift=50 samples (~10 ms) → 26 windows per rep
+Features: 8 per channel × 24 channels = 192-dim vector per window
+  MAV, RMS, WL, ZC, SSC, VAR, MNF, MDF
+Files: data_preprocessing/feature_extraction.py
+       feature_approach/model.ipynb
+       Data/X/feature_files/features_subject_XX_<mode>.mat
+
+Three output formats (mode parameter in feature_extraction.py):
+
+  Format 1 — flat_rep  : (4992,) per rep   [26 windows × 192, concatenated]
+    Sample count : 280 per subject (one per gesture rep)
+    Models       : SVM, XGBoost, MLP
+    Inference    : full gesture captured → one model call → one label
+    Use case     : offline, simplest baseline
+
+  Format 2 — flat_window  : (192,) per window   [current default]
+    Sample count : 7280 per subject (26 windows × 280 reps)
+    Models       : SVM, XGBoost, MLP, 2D CNN
+    Inference    : offline = majority vote over 26 window predictions;
+                   real-time = classify each window as it arrives, rolling vote
+    Use case     : offline and real-time; largest dataset, best for generalization
+
+  Format 3 — sequence  : (26, 192) per rep   [seq_len × features]
+    Sample count : 280 per subject (one sequence per gesture rep)
+    Models       : LSTM, BiLSTM, GRU, Transformer, CNN-LSTM, TCN
+    Inference    : full gesture captured → one forward pass over sequence → one label
+    Use case     : offline; captures temporal dynamics of gesture evolution
+
+  Format 4 — raw signal  : (1, 24, 1500) per rep   [end-to-end deep learning]
+    Sample count : 280 per subject (one raw signal per gesture rep)
+    Models       : EEGNet, ShallowConvNet, EMG_TCN (best: 93.57%), CNN-LSTM, DeepConvNet
+    Inference    : full gesture → preprocess (bandpass, resample, z-score) → forward pass → label
+    Use case     : offline; no hand-crafted features, model learns its own representations
+    Files        : deep_learning_approach/models.py, weights/EMG_TCN_best.pt
+
+  Note on train/test splitting: must split at the rep level (not window level)
+  for all formats to avoid data leakage across windows of the same rep.
+
+─── PROJECT PLAN ─────────────────────────────────────────────────────────────
+
+PHASE 1 — Feature extraction baselines
+  Implement three output formats in feature_extraction.py (flat_rep, flat_window, sequence)
+  Train SVM / XGBoost on Format 1 and Format 2 → establish accuracy baselines
+  Train LSTM / Transformer on Format 3 → compare against Format 4
+  Format 4 (raw signal, end-to-end deep learning) already complete — best: EMG_TCN 93.57%
+
+PHASE 2 — Channel reduction via clustering
+  Cluster the 24 channels into 8 groups (clustering/)
+  Select 1 representative channel per cluster → 8 channels
+  Retrain all models using only 8 channels × 8 features = 64-dim per window
+  Compare accuracy against 24-channel baselines across all three formats
+
+PHASE 3 — Generalization test
+  Evaluate final models on a new/unseen subject
+  Goal: robust cross-subject gesture recognition
+
+Target: match or exceed 90% accuracy (putEMG paper SVM+RMS baseline)
+        while using only 8 of the 24 electrode channels
+Full plan: feature_approach_plan.txt

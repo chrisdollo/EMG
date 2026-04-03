@@ -289,9 +289,10 @@ def batch_process_subjects(input_dir, output_dir,
     succeeded, failed = [], []
 
     for i, filename in enumerate(mat_files, 1):
+        sub_num = (filename.split("_"))[2]
         print(f"[{i}/{len(mat_files)}] {filename}")
         input_path  = os.path.join(input_dir,  filename)
-        output_path = os.path.join(output_dir, f"processed_{filename}")
+        output_path = os.path.join(output_dir, f"emg_gestures_{sub_num}_U")
         try:
             process_subject_file(
                 input_path, output_path,
@@ -369,3 +370,4 @@ def combine_processed_files(input_dir, output_path, mat_key=MAT_KEY):
     print(f"Saved → {output_path}")
 
     return combined_table
+

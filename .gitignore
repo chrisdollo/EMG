@@ -1,5 +1,3 @@
-Data/
-Data copy/
-*.csv
+data/
 venv/
-.DS_Store
+.claude/

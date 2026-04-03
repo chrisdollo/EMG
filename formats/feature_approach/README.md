@@ -1,30 +1,44 @@
 # Feature Approach
 
-Hand-crafted EMG feature extraction and classical/hybrid ML pipeline for the putEMG dataset.
-Classical alternative to the deep learning models in `../deep_learning_approach/`.
+Hand-crafted EMG feature extraction pipeline for the putEMG dataset.
+Runs in parallel to the deep learning approach in `../deep_learning_approach/`.
+
+## Goal
+
+Establish a strong baseline using 24 channels × 8 features, then reduce to 8 channels
+(selected via clustering) and compare. Target: match or exceed 90% accuracy with only
+8 electrode channels.
 
 ## Workflow
 
 ```
-Raw per-subject .mat files (folder)
+data/X/gesture_per_subject_data_5/  (raw per-subject .mat files)
         │
         ▼
-batch_extract_features()          ← feature_extraction.py
+batch_extract_features()          ← model/feature_extraction.py
+  sliding window: size=250, shift=50
+  8 features × 24 channels = 192-dim vector per window
         │
         ▼
-features_subject_XX.mat (folder)
+data/X/feature_files/features_subject_XX.mat
         │
         ▼
-model.ipynb  →  SVM · XGBoost · MLP  →  accuracy + confusion matrix
+model/model.ipynb  →  SVM · XGBoost · MLP  →  baseline accuracy (24 channels)
+        │
+        ▼  (next step)
+clustering/clustering.ipynb  →  group 24 channels into 8 clusters → pick 1 per cluster
+        │
+        ▼
+model/model.ipynb  →  retrain with 8 channels (64-dim input)  →  compare vs baseline
 ```
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `feature_extraction.py` | Sliding-window feature extraction — single-file and batch APIs |
-| `driver.ipynb` | Quick-start notebook — shows single-file and batch extraction usage |
-| `model.ipynb` | Trains and evaluates SVM, XGBoost, and MLP on extracted features |
+| `model/feature_extraction.py` | Sliding-window feature extraction — single-file and batch APIs |
+| `model/driver.ipynb` | Quick-start notebook — shows single-file and batch extraction usage |
+| `model/model.ipynb` | Trains and evaluates SVM, XGBoost, and MLP on extracted features |
 
 ---
 
