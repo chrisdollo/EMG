@@ -292,7 +292,7 @@ def batch_process_subjects(input_dir, output_dir,
         sub_num = (filename.split("_"))[2]
         print(f"[{i}/{len(mat_files)}] {filename}")
         input_path  = os.path.join(input_dir,  filename)
-        output_path = os.path.join(output_dir, f"emg_gestures_{sub_num}_U")
+        output_path = os.path.join(output_dir, f"emg_gestures_{sub_num}_U.mat")
         try:
             process_subject_file(
                 input_path, output_path,
@@ -308,66 +308,3 @@ def batch_process_subjects(input_dir, output_dir,
     print(f"Done. {len(succeeded)} succeeded, {len(failed)} failed.")
     if failed:
         print(f"Failed files: {failed}")
-
-
-def combine_processed_files(input_dir, output_path, mat_key=MAT_KEY):
-    """
-    Combine all processed per-subject .mat files into one stacked file
-    that is loaded by the model notebook.
-
-    Parameters
-    ----------
-    input_dir   : str — directory containing processed subject .mat files
-    output_path : str — path for the combined output file
-    mat_key     : str
-
-    Returns
-    -------
-    combined_table : ndarray, shape (total_reps, 7)
-    """
-    mat_files = sorted([f for f in os.listdir(input_dir) if f.endswith('.mat')])
-
-    if not mat_files:
-        raise ValueError(f"No .mat files found in {input_dir}")
-
-    print(f"Combining {len(mat_files)} file(s):")
-    for f in mat_files:
-        print(f"  - {f}")
-
-    combined_table = None
-
-    for i, filename in enumerate(mat_files, 1):
-        file_path = os.path.join(input_dir, filename)
-        mat_data  = scipy.io.loadmat(file_path)
-
-        key = mat_key if mat_key in mat_data else next(
-            (k for k in mat_data if not k.startswith('__')), None
-        )
-        if key is None:
-            print(f"  WARNING: no data key found in {filename}, skipping")
-            continue
-
-        table = mat_data[key]
-        print(f"  [{i}] {filename}: {table.shape[0]} repetitions")
-        combined_table = table if combined_table is None else np.vstack([combined_table, table])
-
-    if combined_table is None:
-        raise ValueError("No data was successfully loaded.")
-
-    n_valid = sum(
-        1 for r in range(combined_table.shape[0])
-        for c in range(combined_table.shape[1])
-        if combined_table[r, c] is not None
-        and isinstance(combined_table[r, c], np.ndarray)
-        and combined_table[r, c].size > 0
-    )
-
-    print(f"\nCombined shape : {combined_table.shape[0]} repetitions × {combined_table.shape[1]} gestures")
-    print(f"Valid cells    : {n_valid}")
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    savemat(output_path, {mat_key: combined_table})
-    print(f"Saved → {output_path}")
-
-    return combined_table
-

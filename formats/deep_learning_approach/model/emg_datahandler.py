@@ -1,3 +1,5 @@
+import os
+import glob
 import scipy.io
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,7 +11,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 # ── Config ────────────────────────────────────────────────────────────────────
-FILE_PATH    = '/Users/chrisdollo/Documents/Research/putEMG prime/Data/X/model_ready_5/model_ready_5_sub.mat'
+DATA_DIR     = '/Users/chrisdollo/Documents/Research/putEMG prime/data/UG_per_subject'
 BATCH_SIZE   = 16
 TEST_SIZE    = 0.2   # held-out test set
 DEV_SIZE     = 0.1   # dev split from training set (used for early stopping)
@@ -32,7 +34,7 @@ class BCIDataset(Dataset):
 # ── Data loading ──────────────────────────────────────────────────────────────
 def load_data(file_path):
     """
-    Load the combined model-ready .mat file.
+    Load a single per-subject .mat file with key "combinedCell".
     Returns X (N, 1500, 24) float32 and Y (N,) int64.
     """
     mat_file   = scipy.io.loadmat(file_path)
@@ -53,6 +55,46 @@ def load_data(file_path):
             Y.append(gesture_type)
 
     return np.array(X), np.array(Y)
+
+
+def load_data_from_dir(dir_path):
+    """
+    Load and concatenate all per-subject .mat files found directly inside dir_path.
+
+    Each .mat file must contain a "combinedCell" key (same format as load_data).
+    Files are loaded in sorted order and their X / Y arrays are concatenated.
+
+    Parameters
+    ----------
+    dir_path : str — folder containing one .mat file per subject.
+
+    Returns
+    -------
+    X : ndarray, shape (N_total, 1500, 24) float32
+    Y : ndarray, shape (N_total,)          int64
+    """
+    mat_files = sorted(glob.glob(os.path.join(dir_path, "*.mat")))
+
+    if not mat_files:
+        raise FileNotFoundError(f"No .mat files found in: {dir_path}")
+
+    print(f"Loading {len(mat_files)} subject file(s) from: {dir_path}\n")
+
+    all_X, all_Y = [], []
+    for file_path in mat_files:
+        print(f"  → {os.path.basename(file_path)}")
+        X, Y = load_data(file_path)
+        all_X.append(X)
+        all_Y.append(Y)
+        print(f"     {X.shape[0]} samples loaded\n")
+
+    X_combined = np.concatenate(all_X, axis=0)
+    Y_combined = np.concatenate(all_Y, axis=0)
+
+    print(f"Combined dataset: {X_combined.shape[0]} total samples "
+          f"from {len(mat_files)} subject(s).")
+
+    return X_combined, Y_combined
 
 
 # ── Training & evaluation functions ──────────────────────────────────────────
@@ -105,7 +147,7 @@ def evaluateFinal(model, test_loader, device):
 
 
 # ── Load & split data ─────────────────────────────────────────────────────────
-X, Y = load_data(FILE_PATH)
+X, Y = load_data_from_dir(DATA_DIR)
 
 # Reshape to (N, 1, channels, samples) — model input format
 X = X[:, np.newaxis, :, :]
