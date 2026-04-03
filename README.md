@@ -3,7 +3,7 @@
 Two parallel pipelines for hand gesture recognition from surface electromyography (sEMG) signals, built on the [putEMG dataset](https://biolab.put.poznan.pl/putemg-dataset/):
 
 - **Deep learning approach** — CNN/TCN models on raw time-series (best: EMG_TCN, 93.57%)
-- **Feature approach** — hand-crafted features + SVM/XGBoost/MLP, with planned channel reduction via clustering
+- **Feature approach** — hand-crafted features (8 × 24 channels = 192-dim) fed into SVM/XGBoost/MLP or sequence models, across three classification formats
 
 ---
 
@@ -20,8 +20,6 @@ The **putEMG** dataset ([Kaczmarek et al., 2019](https://www.mdpi.com/1424-8220/
 | Repetitions    | ~40 per gesture per subject (2 sessions)                     |
 | File format    | CSV per recording session                                    |
 
-Currently trained and evaluated on **5 subjects** (03–07).
-
 ---
 
 ## Project Structure
@@ -29,40 +27,51 @@ Currently trained and evaluated on **5 subjects** (03–07).
 ```
 putEMG prime/
 ├── data/
-│   ├── raw_data_5/                        # Raw CSVs — 5 subjects (03–07)
-│   ├── X/
-│   │   ├── gesture_per_subject_data_5/    # Per-subject .mat (MATLAB output)
-│   │   ├── preprocessed_file_5/           # Bandpassed + resampled per-subject .mat
-│   │   ├── model_ready_5/                 # Combined dataset for deep learning
-│   │   └── feature_files/                 # Sliding-window feature .mat files
-│   └── uniform_mat_data_per_subject/      # Full 44-subject uniformized .mat files
+│   ├── cvs_data_per_subject/          # Raw CSVs — one folder per subject
+│   ├── NUG_per_subject/               # Per-subject non-uniform gesture .mat files (MATLAB output)
+│   └── UG_per_subject/                # Per-subject uniform gesture .mat files
 │
 ├── data_preprocessing/
-│   ├── gesture_splitting_pipeline/        # MATLAB: CSV → per-subject combinedCell .mat
-│   ├── preprocessing.py                   # Python: bandpass, resample, normalize, combine
-│   └── preprocessing_driver.ipynb         # Driver notebook for preprocessing.py
+│   ├── gesture_splitting_pipeline/    # MATLAB: CSV → per-subject combinedCell .mat
+│   │   ├── put_emg_driver.m           # Entry point — set paths and run
+│   │   ├── prime_get_sensor_readings_1.m
+│   │   ├── prime_split_raw_files_in_blocks_2.m
+│   │   ├── prime_organize_action_blocks_in_gesture_3.m
+│   │   └── prime_uniformize_gestures_4.m
+│   ├── preprocessing.py               # Python: bandpass, resample, z-score normalize, combine
+│   ├── feature_extraction.py          # Sliding-window feature extraction (3 output modes)
+│   └── driver.ipynb                   # Driver notebook for preprocessing + feature extraction
 │
-├── deep_learning_approach/
-│   ├── model/
-│   │   ├── model.ipynb                    # Training & evaluation
-│   │   ├── models.py                      # Model class definitions
-│   │   ├── emg_datahandler.py             # Data loading & train/eval utilities
-│   │   └── weights/                       # Saved checkpoints (.pt)
-│   └── README.md
-│
-├── feature_approach/
-│   ├── model/
-│   │   ├── feature_extraction.py          # Sliding-window feature extraction
-│   │   ├── driver.ipynb                   # Extraction usage examples
-│   │   └── model.ipynb                    # SVM / XGBoost / MLP training
-│   └── README.md
+├── formats/
+│   ├── deep_learning_approach/        # Format 4 — raw signal end-to-end CNN/TCN
+│   │   ├── model/
+│   │   │   ├── model.ipynb            # Training & evaluation
+│   │   │   ├── models.py              # EEGNet, ShallowConvNet, DeepConvNet, CNN_LSTM, EMG_TCN
+│   │   │   ├── emg_datahandler.py     # Data loading, splitting, train/eval utilities
+│   │   │   └── weights/
+│   │   │       └── EMG_TCN_best.pt    # Best checkpoint — 93.57% test accuracy
+│   │   └── README.md
+│   │
+│   ├── format1_flat_rep/              # Format 1 — all windows concatenated per rep → (4992,)
+│   │   └── README.md
+│   │
+│   ├── format2_flat_window/           # Format 2 — one sample per window → (192,), real-time capable
+│   │   ├── model/
+│   │   │   └── model.ipynb            # SVM / XGBoost / MLP training
+│   │   └── README.md
+│   │
+│   └── format3_sequence/              # Format 3 — temporal sequence per rep → (26, 192)
+│       ├── model/
+│       │   ├── model.ipynb            # LSTM / GRU / Transformer training
+│       │   └── handler.py             # Data loading utilities for sequence format
+│       └── README.md
 │
 ├── clustering/
-│   └── clustering.ipynb                   # Channel clustering (work in progress)
+│   └── clustering.ipynb               # K-Means channel clustering (PCA → k=8, work in progress)
 │
-├── claudeReport.txt                       # High-level project overview and plan
-├── claudeAnalysis.txt                     # AI analysis of model performance
-└── README.md
+├── feature_approach_plan.txt          # Specification of all 4 formats
+├── claudeAnalysis.txt                 # Full project analysis and improvement roadmap
+└── claudeReport.txt                   # High-level project overview
 ```
 
 ---
@@ -70,40 +79,60 @@ putEMG prime/
 ## Pipeline Overview
 
 ```
-Raw CSVs  (data/raw_data_5/)
+Raw CSVs  (data/cvs_data_per_subject/)
    │
    ▼
-[MATLAB]  data_preprocessing/gesture_splitting_pipeline/
+[MATLAB]  data_preprocessing/gesture_splitting_pipeline/put_emg_driver.m
    CSV → extract 24 channels → detect gesture blocks → combinedCell (N_reps × 7)
-   Output: data/X/gesture_per_subject_data_5/
+   Output: data/NUG_per_subject/   and   data/UG_per_subject/
    │
    ▼
-[Python]  data_preprocessing/preprocessing_driver.ipynb
-   Bandpass 20–500 Hz → resample to 1500 samples → z-score normalize → combine subjects
-   Output: data/X/preprocessed_file_5/  and  data/X/model_ready_5/
+[Python]  data_preprocessing/driver.ipynb  →  preprocessing.py
+   Bandpass 20–500 Hz → resample to 1500 samples → z-score normalize per channel
    │
-   ├─── APPROACH A: Deep Learning ─────────────────────────────────────────────
+   ├─── FORMAT 4: Deep Learning (raw signal) ───────────────────────────────────
    │
    ▼
-deep_learning_approach/model/model.ipynb
+formats/deep_learning_approach/model/model.ipynb
    Train EEGNet / ShallowConvNet / DeepConvNet / CNN_LSTM / EMG_TCN
    Input: (batch, 1, 24, 1500) — Best: EMG_TCN at 93.57%
    │
-   ├─── APPROACH B: Feature Extraction ────────────────────────────────────────
+   ├─── FORMATS 1–3: Feature Approach ──────────────────────────────────────────
    │
    ▼
-feature_approach/model/feature_extraction.py  (or driver.ipynb)
-   Sliding window (size=250, shift=50) → 8 features × 24 channels = 192-dim vector
-   Output: data/X/feature_files/
+data_preprocessing/feature_extraction.py
+   Sliding window (size=250, shift=50) → 8 features × 24 channels = 192-dim per window
    │
-   ▼
-feature_approach/model/model.ipynb
-   Train SVM / XGBoost / MLP on 192-dim features
-   │
-   ▼  (next step)
-clustering/clustering.ipynb
-   Cluster 24 channels → select 8 → retrain with 64-dim input → compare vs baseline
+   ├── mode="flat_rep"      → (4992,) per rep  → formats/format1_flat_rep/
+   ├── mode="flat_window"   → (192,)  per window → formats/format2_flat_window/   [real-time]
+   └── mode="sequence"      → (26, 192) per rep  → formats/format3_sequence/
 ```
+
+---
+
+## Format Summary
+
+| Format | Sample shape     | Dataset size (per subject) | Real-time? | Models                         |
+|--------|------------------|-----------------------------|------------|--------------------------------|
+| 1      | `(4992,)`        | 280 reps                    | No         | SVM, XGBoost, MLP              |
+| 2      | `(192,)`         | 7280 windows                | **Yes**    | SVM, XGBoost, MLP, 2D CNN      |
+| 3      | `(26, 192)`      | 280 reps                    | No         | LSTM, GRU, Transformer, TCN    |
+| 4      | `(1, 24, 1500)`  | 280 reps                    | No         | EEGNet, TCN, CNN-LSTM          |
+
+---
+
+## Results (5 subjects, deep learning)
+
+| Model                  | Test Accuracy |
+|------------------------|---------------|
+| **EMG_TCN**            | **93.57%**    |
+| EEGNet                 | 86.43%        |
+| ShallowConvNet         | 81.07%        |
+| DeepConvNet            | 59.64%        |
+| CNN_LSTM               | 51.43%        |
+| putEMG paper (SVM+RMS) | ~90%          |
+
+Feature approach (Formats 1–3): training in progress — no results yet.
 
 ---
 
@@ -116,21 +145,25 @@ run('data_preprocessing/gesture_splitting_pipeline/put_emg_driver.m')
 ```
 
 ### 2. Python Signal Preprocessing
-Open and run `data_preprocessing/preprocessing_driver.ipynb`.
+Open and run `data_preprocessing/driver.ipynb`.
 
-### 3. Deep Learning
-Open and run `deep_learning_approach/model/model.ipynb`.  
-See `deep_learning_approach/README.md` for details.
-
-### 4. Feature Approach
+### 3. Feature Extraction
 ```python
-# Extract features
 from feature_extraction import batch_extract_features
-batch_extract_features(input_dir="data/X/gesture_per_subject_data_5/",
-                       output_dir="data/X/feature_files/")
+
+batch_extract_features(mode="flat_window")   # Format 2 — one sample per window
+batch_extract_features(mode="flat_rep")      # Format 1 — full rep as one flat vector
+batch_extract_features(mode="sequence")      # Format 3 — temporal sequence per rep
 ```
-Or run `feature_approach/model/driver.ipynb`, then `feature_approach/model/model.ipynb`.  
-See `feature_approach/README.md` for details.
+
+### 4. Deep Learning (Format 4)
+Open and run `formats/deep_learning_approach/model/model.ipynb`.  
+See `formats/deep_learning_approach/README.md` for details.
+
+### 5. Feature-Based Models
+- **Format 1:** `formats/format1_flat_rep/` — see README.md
+- **Format 2:** `formats/format2_flat_window/model/model.ipynb`
+- **Format 3:** `formats/format3_sequence/model/model.ipynb`
 
 ---
 

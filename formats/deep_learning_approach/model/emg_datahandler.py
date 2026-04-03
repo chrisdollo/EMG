@@ -4,18 +4,16 @@ import scipy.io
 import numpy as np
 import matplotlib.pyplot as plt
 
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DATA_DIR     = '/Users/chrisdollo/Documents/Research/putEMG prime/data/UG_per_subject'
-BATCH_SIZE   = 16
-TEST_SIZE    = 0.2   # held-out test set
-DEV_SIZE     = 0.1   # dev split from training set (used for early stopping)
-RANDOM_STATE = 42
+DATA_DIR         = '/Users/chrisdollo/Documents/Research/putEMG prime/data/UG_per_subject'
+BATCH_SIZE       = 16
+TEST_SUBJECT_IDX = 0   # index into the sorted subject list to hold out as test
+DEV_SUBJECT_IDX  = 1   # index into the sorted subject list to use as dev (val) set
 
 
 # ── Dataset ───────────────────────────────────────────────────────────────────
@@ -44,9 +42,6 @@ def load_data(file_path):
     num_classes     = cell_array.shape[1]
     num_training_ex = cell_array.shape[0]
 
-    print("num_classes",     num_classes)
-    print("num_training_ex", num_training_ex)
-
     for gesture_type in range(num_classes):
         for row_idx in range(num_training_ex):
             cell = cell_array[row_idx, gesture_type]
@@ -57,44 +52,129 @@ def load_data(file_path):
     return np.array(X), np.array(Y)
 
 
-def load_data_from_dir(dir_path):
+def _reshape(X, Y):
+    """Reshape from (N, 1500, 24) to (N, 1, 24, 1500) and squeeze Y."""
+    X = X[:, np.newaxis, :, :]
+    X = np.transpose(X, (0, 1, 3, 2))
+    Y = Y.squeeze().astype(np.int64)
+    return X, Y
+
+
+def load_all_subjects(dir_path):
     """
-    Load and concatenate all per-subject .mat files found directly inside dir_path.
-
-    Each .mat file must contain a "combinedCell" key (same format as load_data).
-    Files are loaded in sorted order and their X / Y arrays are concatenated.
-
-    Parameters
-    ----------
-    dir_path : str — folder containing one .mat file per subject.
-
-    Returns
-    -------
-    X : ndarray, shape (N_total, 1500, 24) float32
-    Y : ndarray, shape (N_total,)          int64
+    Load all per-subject .mat files from dir_path.
+    Returns a list of (subject_name, X, Y) tuples in sorted order.
+    X shape per subject: (N, 1, 24, 1500)  Y shape: (N,)
     """
     mat_files = sorted(glob.glob(os.path.join(dir_path, "*.mat")))
-
     if not mat_files:
         raise FileNotFoundError(f"No .mat files found in: {dir_path}")
 
     print(f"Loading {len(mat_files)} subject file(s) from: {dir_path}\n")
-
-    all_X, all_Y = [], []
+    subjects = []
     for file_path in mat_files:
-        print(f"  → {os.path.basename(file_path)}")
+        name = os.path.basename(file_path)
         X, Y = load_data(file_path)
-        all_X.append(X)
-        all_Y.append(Y)
-        print(f"     {X.shape[0]} samples loaded\n")
+        X, Y = _reshape(X, Y)
+        print(f"  → {name}  ({X.shape[0]} samples)")
+        subjects.append((name, X, Y))
 
-    X_combined = np.concatenate(all_X, axis=0)
-    Y_combined = np.concatenate(all_Y, axis=0)
+    print(f"\nTotal subjects loaded: {len(subjects)}")
+    return subjects
 
-    print(f"Combined dataset: {X_combined.shape[0]} total samples "
-          f"from {len(mat_files)} subject(s).")
 
-    return X_combined, Y_combined
+# ── LOSO split ────────────────────────────────────────────────────────────────
+def make_loso_loaders(subjects, test_subject_idx, dev_subject_idx=-1):
+    """
+    Build train/dev/test DataLoaders for one LOSO fold.
+
+    Parameters
+    ----------
+    subjects         : list of (name, X, Y) from load_all_subjects()
+    test_subject_idx : index of the subject to hold out as the test set
+    dev_subject_idx  : index of the subject to use as the dev (validation) set.
+                       Supports negative indexing (-1 = last subject).
+                       If it collides with test_subject_idx, shifts by +1 automatically.
+
+    Returns
+    -------
+    train_loader, dev_loader, test_loader
+    """
+    N = len(subjects)
+    if dev_subject_idx < 0:
+        dev_subject_idx = N + dev_subject_idx  # resolve negative index
+
+    # If dev and test would be the same subject, shift dev by 1
+    if dev_subject_idx == test_subject_idx:
+        dev_subject_idx = (dev_subject_idx + 1) % N
+
+    assert 0 <= test_subject_idx < N, "test_subject_idx out of range"
+    assert 0 <= dev_subject_idx  < N, "dev_subject_idx out of range"
+
+    test_name, X_test, y_test = subjects[test_subject_idx]
+    dev_name,  X_dev,  y_dev  = subjects[dev_subject_idx]
+
+    # create the array of train_subject makes sure none of the training subject are used for test or validation
+    train_subjects = [
+        (name, X, Y) for i, (name, X, Y) in enumerate(subjects)
+        if i != test_subject_idx and i != dev_subject_idx
+    ]
+
+    X_train = np.concatenate([X for _, X, _ in train_subjects], axis=0)
+    y_train = np.concatenate([Y for _, _, Y in train_subjects], axis=0)
+
+    print(f"  Test  : {test_name}  — {X_test.shape[0]} samples")
+    print(f"  Dev   : {dev_name}   — {X_dev.shape[0]} samples")
+    print(f"  Train : {len(train_subjects)} subjects, {X_train.shape[0]} samples total\n")
+
+    train_loader = DataLoader(BCIDataset(X_train, y_train), batch_size=BATCH_SIZE, shuffle=True)
+    dev_loader   = DataLoader(BCIDataset(X_dev,   y_dev),   batch_size=BATCH_SIZE, shuffle=False)
+    test_loader  = DataLoader(BCIDataset(X_test,  y_test),  batch_size=BATCH_SIZE, shuffle=False)
+
+    return train_loader, dev_loader, test_loader
+
+
+def loso_folds(subjects, n_folds=1, dev_subject_idx=-1):
+    """
+    Generator that yields LOSO folds, rotating the test subject.
+
+    Dev subject is fixed (default: last subject = index -1) so the same
+    subject is always held out for validation across all folds. If the
+    rotating test subject collides with dev, make_loso_loaders shifts dev
+    automatically.
+
+    Parameters
+    ----------
+    subjects        : list of (name, X, Y) from load_all_subjects()
+    n_folds         : how many folds to run. Default: all subjects.
+                      Set to a small number (e.g. 3) to run a quick subset.
+    dev_subject_idx : fixed index for the dev subject across all folds.
+                      Supports negative indexing.
+
+    Yields
+    ------
+    fold_idx, test_subject_name, train_loader, dev_loader, test_loader
+
+    Example
+    -------
+    # Quick run — 3 folds
+    for fold, test_name, train_loader, dev_loader, test_loader in loso_folds(subjects, n_folds=3):
+        # train model, record accuracy ...
+
+    # Full LOSO — all subjects
+    for fold, test_name, train_loader, dev_loader, test_loader in loso_folds(subjects):
+        # train model, record accuracy ...
+    """
+    N       = len(subjects)
+
+    print(f"Running {n_folds}/{N} LOSO fold(s)\n")
+    for fold in range(n_folds):
+        test_idx = fold  # rotate test subject: fold 0 → subject 0, fold 1 → subject 1 ...
+        print(f"── Fold {fold + 1}/{n_folds} ──────────────────────")
+        train_loader, dev_loader, test_loader = make_loso_loaders(
+            subjects, test_idx, dev_subject_idx
+        )
+        yield fold, subjects[test_idx][0], train_loader, dev_loader, test_loader
 
 
 # ── Training & evaluation functions ──────────────────────────────────────────
@@ -112,11 +192,11 @@ def train(model, train_loader, criterion, optimizer, device):
     return total_loss / len(train_loader)
 
 
-def evaluate(model, test_loader, device):
+def evaluate(model, loader, device):
     model.eval()
     correct, total = 0, 0
     with torch.no_grad():
-        for X, y in test_loader:
+        for X, y in loader:
             X, y = X.to(device), y.to(device)
             pred = model(X).argmax(dim=1)
             correct += (pred == y).sum().item()
@@ -146,32 +226,11 @@ def evaluateFinal(model, test_loader, device):
     return correct / total
 
 
-# ── Load & split data ─────────────────────────────────────────────────────────
-X, Y = load_data_from_dir(DATA_DIR)
+# ── Load all subjects & build default single-fold LOSO loaders ───────────────
+subjects = load_all_subjects(DATA_DIR)
 
-# Reshape to (N, 1, channels, samples) — model input format
-X = X[:, np.newaxis, :, :]
-X = np.transpose(X, (0, 1, 3, 2))
-Y = Y.squeeze().astype(np.int64)
-
-print(f"X: {X.shape}, Y: {Y.shape}")
-
-# 80/20 train/test split — test set held out until final evaluation
-X_train, X_test, y_train, y_test = train_test_split(
-    X, Y, test_size=TEST_SIZE, stratify=Y, random_state=RANDOM_STATE
+train_loader, dev_loader, test_loader = make_loso_loaders(
+    subjects,
+    test_subject_idx=TEST_SUBJECT_IDX,
+    dev_subject_idx=DEV_SUBJECT_IDX,   # -1 = last subject; auto-shifts if it collides with test
 )
-
-# 90/10 train/dev split from training set — used only for early stopping
-X_train, X_dev, y_train, y_dev = train_test_split(
-    X_train, y_train, test_size=DEV_SIZE, stratify=y_train, random_state=RANDOM_STATE
-)
-
-print(f"Train: {len(X_train)} | Dev: {len(X_dev)} | Test: {len(X_test)}")
-
-# ── DataLoaders ───────────────────────────────────────────────────────────────
-train_loader = DataLoader(BCIDataset(X_train, y_train), batch_size=BATCH_SIZE, shuffle=True)
-dev_loader   = DataLoader(BCIDataset(X_dev,   y_dev),   batch_size=BATCH_SIZE, shuffle=False)
-test_loader  = DataLoader(BCIDataset(X_test,  y_test),  batch_size=BATCH_SIZE, shuffle=False)
-
-# Full dataset loader — used by the retrain section of model.ipynb
-full_loader  = DataLoader(BCIDataset(X, Y), batch_size=BATCH_SIZE, shuffle=True)
