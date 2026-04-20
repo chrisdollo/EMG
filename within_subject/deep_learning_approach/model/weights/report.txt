@@ -1,0 +1,72 @@
+================================================================================
+  putEMG — Within-Subject Deep Learning Evaluation Report
+  Generated : 2026-04-19  21:43:31
+================================================================================
+
+Config
+--------------------------------------------------------------------------------
+  Models tested      : EEGNet, ShallowConvNet, EMG_TCN
+  Subjects evaluated : 38
+  Folds per subject  : 3
+  Dropout            : 0.1
+  Max epochs         : 30
+  Early stop         : patience=5, min_delta=0.001
+  Seed               : 42
+
+--------------------------------------------------------------------------------
+Model Summary  (grand mean ± std across subjects)
+--------------------------------------------------------------------------------
+  Model               Subjects    Mean Acc       Std
+  ------------------  --------  ----------  --------
+  EMG_TCN                   37      97.47%     2.78%  ←
+  ShallowConvNet            38      93.50%     4.09%
+  EEGNet                    38      91.05%     5.56%
+
+  → Best architecture : EMG_TCN  (97.47%)
+  → Weights saved in  : weights/EMG_TCN/
+
+--------------------------------------------------------------------------------
+Per-Subject Results
+--------------------------------------------------------------------------------
+  Subject           EEGNet  ShallowCon     EMG_TCN  Best Model        Best Acc
+  ------------  ----------  ----------  ----------  ----------------  --------
+  subject_03        98.90%      97.49%     100.00%  EMG_TCN            100.00%
+  subject_04        91.89%      95.03%      99.66%  EMG_TCN             99.66%
+  subject_05        74.59%      83.57%      94.64%  EMG_TCN             94.64%
+  subject_06        72.82%      82.86%      92.39%  EMG_TCN             92.39%
+  subject_07        84.04%      86.87%      96.23%  EMG_TCN             96.23%
+  subject_08        87.05%      91.86%      98.19%  EMG_TCN             98.19%
+  subject_09        95.05%      95.00%      98.90%  EMG_TCN             98.90%
+  subject_10        91.63%      94.37%      97.85%  EMG_TCN             97.85%
+  subject_11        87.91%      83.44%      85.90%  EEGNet              87.91%
+  subject_12        94.06%      95.74%     100.00%  EMG_TCN            100.00%
+  subject_13        86.34%      90.37%      93.88%  EMG_TCN             93.88%
+  subject_14        95.34%      96.39%      97.91%  EMG_TCN             97.91%
+  subject_15        87.86%      87.18%      97.93%  EMG_TCN             97.93%
+  subject_16        94.30%      96.78%     100.00%  EMG_TCN            100.00%
+  subject_17        93.98%      95.05%      98.95%  EMG_TCN             98.95%
+  subject_18        88.57%      91.08%      95.08%  EMG_TCN             95.08%
+  subject_19        94.90%      94.98%      98.56%  EMG_TCN             98.56%
+  subject_20        87.83%      94.66%      96.42%  EMG_TCN             96.42%
+  subject_22        95.13%      96.42%      98.61%  EMG_TCN             98.61%
+  subject_23        86.29%      94.19%      98.53%  EMG_TCN             98.53%
+  subject_24        91.97%      96.42%      95.71%  ShallowConvNet      96.42%
+  subject_25        88.59%      94.71%      98.25%  EMG_TCN             98.25%
+  subject_26        94.43%      97.91%     100.00%  EMG_TCN            100.00%
+  subject_27        98.25%      97.15%      99.29%  EMG_TCN             99.29%
+  subject_29        93.93%      96.42%      99.63%  EMG_TCN             99.63%
+  subject_30        93.17%      90.37%      97.23%  EMG_TCN             97.23%
+  subject_31        88.17%      90.40%      95.03%  EMG_TCN             95.03%
+  subject_33        97.12%      98.19%      98.95%  EMG_TCN             98.95%
+  subject_34        96.52%      97.91%      99.66%  EMG_TCN             99.66%
+  subject_35        97.49%      97.54%      99.63%  EMG_TCN             99.63%
+  subject_36        86.79%      90.37%      98.22%  EMG_TCN             98.22%
+  subject_38        91.34%      96.18%      96.23%  EMG_TCN             96.23%
+  subject_39        88.02%      92.15%      95.08%  EMG_TCN             95.08%
+  subject_42        94.69%      96.08%     100.00%  EMG_TCN            100.00%
+  subject_43        94.98%      93.85%      95.00%  EMG_TCN             95.00%
+  subject_45        89.40%      94.37%      99.27%  EMG_TCN             99.27%
+  subject_46        92.44%      95.76%      99.63%  EMG_TCN             99.63%
+  subject_47        94.06%      93.93%           —  EEGNet              94.06%
+
+================================================================================

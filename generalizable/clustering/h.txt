@@ -1,0 +1,11 @@
+For the clustering notebook. Rewrite it. let me tell you exactly what I want.                                   (\__/)  
+  1. load in libraries and any dependencies we might need                                                        ( ×  × ) 
+  2. load the data from the emg_loader                                                                          =(  ..  )= 
+  3.    
+
+
+
+Out of the 24 chnnels extract 8 features
+Extract features compute 50 features and try to find the best 8
+  Find a reason to say why we get 8-12 features
+  Try to find a research paer to get the reseach paper 

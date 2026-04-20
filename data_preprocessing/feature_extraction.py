@@ -62,6 +62,8 @@ import re
 import glob
 import numpy as np
 import scipy.io
+from scipy import signal
+from scipy.io import savemat
 from scipy.signal import welch
 
 
@@ -335,42 +337,19 @@ def extract_features(
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    if mode == "sequence":
-        np.savez(
-            output_filepath,
-            X             = X,
-            y             = y,
-            feature_names = np.array(FEATURE_NAMES),
-            gesture_names = np.array(GESTURE_NAMES),
-            n_channels          = N_CHANNELS,
-            n_features_per_ch   = N_FEATURES_PER_CH,
-            n_windows_per_rep   = n_windows_per_rep,
-            window_size         = window_size,
-            window_shift        = window_shift,
-            sampling_rate       = sampling_rate,
-        )
-    else:
-        feature_names_cell = np.empty((1, len(FEATURE_NAMES)), dtype=object)
-        feature_names_cell[0, :] = FEATURE_NAMES
-
-        gesture_names_cell = np.empty((1, len(GESTURE_NAMES)), dtype=object)
-        gesture_names_cell[0, :] = GESTURE_NAMES
-
-        scipy.io.savemat(
-            output_filepath,
-            {
-                "X":                   X,
-                "y":                   y.reshape(-1, 1).astype(np.float64),
-                "feature_names":       feature_names_cell,
-                "gesture_names":       gesture_names_cell,
-                "n_channels":          float(N_CHANNELS),
-                "n_features_per_ch":   float(N_FEATURES_PER_CH),
-                "n_windows_per_rep":   float(n_windows_per_rep),
-                "window_size":         float(window_size),
-                "window_shift":        float(window_shift),
-                "sampling_rate":       float(sampling_rate),
-            },
-        )
+    np.savez(
+        output_filepath,
+        X                 = X,
+        y                 = y,
+        feature_names     = np.array(FEATURE_NAMES),
+        gesture_names     = np.array(GESTURE_NAMES),
+        n_channels        = N_CHANNELS,
+        n_features_per_ch = N_FEATURES_PER_CH,
+        n_windows_per_rep = n_windows_per_rep,
+        window_size       = window_size,
+        window_shift      = window_shift,
+        sampling_rate     = sampling_rate,
+    )
 
     print(f"\nSaved   : {output_filepath}")
 
@@ -403,11 +382,11 @@ def batch_extract_features(
 
     Output naming
     -------------
-    Input  : emg_gestures_03_combined_non_uniform.mat
-    Output : features_subject_03_flat_window.mat   (or .npz for sequence mode)
+    Input  : emg_gestures_03_U.mat
+    Output : features_subject_03_flat_window.npz
 
     Subject ID is parsed with the regex ``emg_gestures_(\\w+?)_``.
-    Falls back to ``features_<stem>_<mode>.<ext>`` if the pattern does not match.
+    Falls back to ``features_<stem>_<mode>.npz`` if the pattern does not match.
     """
     if mode not in VALID_MODES:
         raise ValueError(f"Invalid mode '{mode}'. Choose from {VALID_MODES}.")
@@ -417,7 +396,6 @@ def batch_extract_features(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    ext       = ".npz" if mode == "sequence" else ".mat"
     mat_files = sorted(glob.glob(os.path.join(input_dir, "*.mat")))
 
     if not mat_files:
@@ -434,10 +412,10 @@ def batch_extract_features(
         match = re.search(r"emg_gestures_(\w+?)_", filename)
         if match:
             subject_id      = match.group(1)
-            output_filename = f"features_subject_{subject_id}_{mode}{ext}"
+            output_filename = f"features_subject_{subject_id}_{mode}.npz"
         else:
             stem            = os.path.splitext(filename)[0]
-            output_filename = f"features_{stem}_{mode}{ext}"
+            output_filename = f"features_{stem}_{mode}.npz"
             print(f"  [warn] Could not parse subject ID from '{filename}'. "
                   f"Using '{output_filename}'.")
 

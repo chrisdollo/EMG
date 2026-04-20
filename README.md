@@ -42,7 +42,7 @@ putEMG prime/
 │   ├── feature_extraction.py          # Sliding-window feature extraction (3 output modes)
 │   └── driver.ipynb                   # Driver notebook for preprocessing + feature extraction
 │
-├── formats/
+├── baseline_models/
 │   ├── deep_learning_approach/        # Format 4 — raw signal end-to-end CNN/TCN
 │   │   ├── model/
 │   │   │   ├── model.ipynb            # Training & evaluation
@@ -93,7 +93,7 @@ Raw CSVs  (data/cvs_data_per_subject/)
    ├─── FORMAT 4: Deep Learning (raw signal) ───────────────────────────────────
    │
    ▼
-formats/deep_learning_approach/model/model.ipynb
+baseline_models/deep_learning_approach/model/model.ipynb
    Train EEGNet / ShallowConvNet / DeepConvNet / CNN_LSTM / EMG_TCN
    Input: (batch, 1, 24, 1500) — Best: EMG_TCN at 93.57%
    │
@@ -103,9 +103,9 @@ formats/deep_learning_approach/model/model.ipynb
 data_preprocessing/feature_extraction.py
    Sliding window (size=250, shift=50) → 8 features × 24 channels = 192-dim per window
    │
-   ├── mode="flat_rep"      → (4992,) per rep  → formats/format1_flat_rep/
-   ├── mode="flat_window"   → (192,)  per window → formats/format2_flat_window/   [real-time]
-   └── mode="sequence"      → (26, 192) per rep  → formats/format3_sequence/
+   ├── mode="flat_rep"      → (4992,) per rep  → baseline_models/format1_flat_rep/
+   ├── mode="flat_window"   → (192,)  per window → baseline_models/format2_flat_window/   [real-time]
+   └── mode="sequence"      → (26, 192) per rep  → baseline_models/format3_sequence/
 ```
 
 ---
@@ -157,13 +157,13 @@ batch_extract_features(mode="sequence")      # Format 3 — temporal sequence pe
 ```
 
 ### 4. Deep Learning (Format 4)
-Open and run `formats/deep_learning_approach/model/model.ipynb`.  
-See `formats/deep_learning_approach/README.md` for details.
+Open and run `baseline_models/deep_learning_approach/model/model.ipynb`.  
+See `baseline_models/deep_learning_approach/README.md` for details.
 
 ### 5. Feature-Based Models
-- **Format 1:** `formats/format1_flat_rep/` — see README.md
-- **Format 2:** `formats/format2_flat_window/model/model.ipynb`
-- **Format 3:** `formats/format3_sequence/model/model.ipynb`
+- **Format 1:** `baseline_models/format1_flat_rep/` — see README.md
+- **Format 2:** `baseline_models/format2_flat_window/model/model.ipynb`
+- **Format 3:** `baseline_models/format3_sequence/model/model.ipynb`
 
 ---
 

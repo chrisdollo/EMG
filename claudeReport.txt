@@ -1,99 +1,274 @@
-putEMG Prime — Project Report
-==============================
+================================================================================
+  putEMG Prime — Project Report & Analysis
+  Last updated: 2026-04-09
+================================================================================
 
-─── DATASET ──────────────────────────────────────────────────────────────────
+--------------------------------------------------------------------------------
+1. DATASET
+--------------------------------------------------------------------------------
 
-Source: putEMG (Poznan University of Technology, Kaczmarek et al. 2019)
-Full dataset: 44 able-bodied subjects, 24 sEMG channels, 5120 Hz
-Active gestures: 7 classes — G1, G2, G3, G6, G7, G8, G9
-Protocol: ~40 repetitions per gesture per subject (2 sessions × 5 series × ~4 reps)
-Currently used: 5 subjects (03–07)
+Source      : putEMG (Poznan University of Technology, Kaczmarek et al. 2019)
+Subjects    : 44 able-bodied subjects processed (03–07, 08–20, 22–27, 29–31,
+              33–36, 38–39, 42–43, 45–51, 53–54)
+              IDs 21, 28, 32, 37, 40, 41, 44, 52 not present in dataset
+Channels    : 24 sEMG electrodes (ring around the forearm)
+Sampling    : 5120 Hz
+Gestures    : 7 classes — G1, G2, G3, G6, G7, G8, G9
+Protocol    : ~40 reps/gesture/subject  (2 sessions × 5 series × ~4 reps)
+              Each rep: ~280 samples per subject after preprocessing
 
-Raw files: one CSV per recording session, per subject.
-  Columns: 24 EMG channels + 1 trajectory label (0=rest, 1–9=gesture, −1=ignore)
-  Location: external / per-subject subfolders
+Raw data    : one CSV per session per subject
+              24 EMG channels + 1 trajectory label (0=rest, 1–9=gesture, -1=ignore)
 
-─── PIPELINE & FILES ─────────────────────────────────────────────────────────
+--------------------------------------------------------------------------------
+2. PIPELINE
+--------------------------------------------------------------------------------
 
-Stage 1 — MATLAB gesture splitting         code/deep_learning_approach/1_gesture_splitting_pipeline/
-  CSV → extract 24 channels → detect gesture blocks → combinedCell (N_reps × 7)
-  Output: Data/X/gesture_per_subject_data_5/emg_gestures_SS_combined_non_uniform.mat
+STAGE 1 — Signal Preprocessing
+  Code : data_preprocessing/preprocessing.py
+         data_preprocessing/driver.ipynb
+  Steps: bandpass 20–500 Hz (zero-phase Butterworth, order 4, before resampling)
+         → resample to 1500 samples
+         → per-channel z-score normalization
+  Output: /Volumes/KRIS/data/UG_per_subject/emg_gestures_SS_U.mat  (44 files)
+  Shape: combinedCell (N_reps, 7), each cell (1500, 24) float64
 
-Stage 2 — Python signal preprocessing     code/deep_learning_approach/2_data_preprocessing_pipeline.ipynb
-  Bandpass 20–500 Hz → resample to 1500 samples → z-score normalize → combine subjects
-  Output: Data/X/preprocessed_file_5/ and Data/X/model_ready_5/model_ready_5_sub.mat
-  Final shape: 1400 samples (200 reps × 7 gestures), each (1500 × 24)
+STAGE 2A — Feature Extraction (for feature-based models)
+  Code : data_preprocessing/feature_extraction.py
+         data_preprocessing/driver.ipynb
+  Window: size=250 samples (~49 ms), shift=50 samples (~10 ms) → 26 windows/rep
+  Features: 8 per channel × 24 channels = 192-dim vector per window
+    MAV, RMS, WL, ZC, SSC, VAR, MNF, MDF
 
-─── APPROACH A: DEEP LEARNING ────────────────────────────────────────────────
+STAGE 2B — Deep Learning Data Loading (for CNN/TCN models)
+  Code : formats/deep_learning_approach/model/emg_datahandler.py
+  Loads preprocessed .mat files at runtime; reshapes to (N, 1, 24, 1500)
+  LOSO splits via make_loso_loaders() / loso_folds() / generate_loso_configs()
 
-Input: model_ready_5_sub.mat  →  (batch, 1, 24, 1500) tensors
-Models: EEGNet, ShallowConvNet, DeepConvNet, CNN_LSTM, EMG_TCN
-Best result: EMG_TCN — 93.57% test accuracy (5 subjects)
-Files: code/deep_learning_approach/3_model_evaluation.ipynb
-       code/deep_learning_approach/4_model_retrain_full.ipynb
-       code/deep_learning_approach/models.py
-       code/deep_learning_approach/data_utils.py
-       code/deep_learning_approach/weights/EMG_TCN_best.pt
+--------------------------------------------------------------------------------
+3. APPROACHES & FORMAT OVERVIEW
+--------------------------------------------------------------------------------
 
-─── APPROACH B: FEATURE EXTRACTION ──────────────────────────────────────────
+  Format 1 — flat_rep     : (4992,) per rep   [26 windows × 192, concatenated]
+    Models     : SVM, XGBoost, MLP
+    Use case   : offline; simplest baseline
+    Status     : extraction implemented; training pending
 
-Input: preprocessed per-subject .mat files (1500 samples × 24 channels per rep)
-Sliding window: size=250 samples (~49 ms), shift=50 samples (~10 ms) → 26 windows per rep
-Features: 8 per channel × 24 channels = 192-dim vector per window
-  MAV, RMS, WL, ZC, SSC, VAR, MNF, MDF
-Files: data_preprocessing/feature_extraction.py
-       feature_approach/model.ipynb
-       Data/X/feature_files/features_subject_XX_<mode>.mat
+  Format 2 — flat_window  : (192,) per window
+    Models     : SVM, XGBoost, MLP, 2D CNN
+    Use case   : offline + real-time; largest dataset; majority vote for offline
+    Status     : extraction implemented; training pending
 
-Three output formats (mode parameter in feature_extraction.py):
+  Format 3 — sequence     : (26, 192) per rep
+    Models     : LSTM, GRU, BiLSTM, Transformer
+    Use case   : offline; captures temporal dynamics
+    Status     : extraction done for 26 subjects; 18 remaining; training pending
 
-  Format 1 — flat_rep  : (4992,) per rep   [26 windows × 192, concatenated]
-    Sample count : 280 per subject (one per gesture rep)
-    Models       : SVM, XGBoost, MLP
-    Inference    : full gesture captured → one model call → one label
-    Use case     : offline, simplest baseline
+  Format 4 — raw signal   : (1, 24, 1500) per rep   [end-to-end deep learning]
+    Models     : EEGNet, ShallowConvNet, EMG_TCN  (best: 93.57%)
+    Use case   : offline; model learns its own representations
+    Status     : COMPLETE — see results below
 
-  Format 2 — flat_window  : (192,) per window   [current default]
-    Sample count : 7280 per subject (26 windows × 280 reps)
-    Models       : SVM, XGBoost, MLP, 2D CNN
-    Inference    : offline = majority vote over 26 window predictions;
-                   real-time = classify each window as it arrives, rolling vote
-    Use case     : offline and real-time; largest dataset, best for generalization
+  NOTE: splits must be at the rep level (not window level) to avoid data leakage.
 
-  Format 3 — sequence  : (26, 192) per rep   [seq_len × features]
-    Sample count : 280 per subject (one sequence per gesture rep)
-    Models       : LSTM, BiLSTM, GRU, Transformer, CNN-LSTM, TCN
-    Inference    : full gesture captured → one forward pass over sequence → one label
-    Use case     : offline; captures temporal dynamics of gesture evolution
+--------------------------------------------------------------------------------
+4. MODEL ARCHITECTURES  (Format 4 — deep learning)
+--------------------------------------------------------------------------------
 
-  Format 4 — raw signal  : (1, 24, 1500) per rep   [end-to-end deep learning]
-    Sample count : 280 per subject (one raw signal per gesture rep)
-    Models       : EEGNet, ShallowConvNet, EMG_TCN (best: 93.57%), CNN-LSTM, DeepConvNet
-    Inference    : full gesture → preprocess (bandpass, resample, z-score) → forward pass → label
-    Use case     : offline; no hand-crafted features, model learns its own representations
-    Files        : deep_learning_approach/models.py, weights/EMG_TCN_best.pt
+  All models: NUM_CLASSES=7, NUM_CHANNELS=24, INPUT_SAMPLES=1500
+  Code: formats/deep_learning_approach/model/deep_learning_models.py
 
-  Note on train/test splitting: must split at the rep level (not window level)
-  for all formats to avoid data leakage across windows of the same rep.
+  EEGNet         — depthwise + separable convolutions; standard BCI architecture
+  ShallowConvNet — temporal conv → band-power pooling (x² → avgpool → log)
+  DeepConvNet    — deeper block-based CNN                [currently disabled]
+  CNN_LSTM       — spatial CNN + temporal LSTM           [currently disabled]
+  EMG_TCN        — dilated temporal convolutions + residual connections  [BEST]
 
-─── PROJECT PLAN ─────────────────────────────────────────────────────────────
+  Training config (model.ipynb):
+    Optimizer    : Adam
+    LR scheduler : ReduceLROnPlateau (factor=0.5, patience=5, min_lr=1e-6)
+    Early stop   : patience=5, min_delta=0.002
+    Max epochs   : 20
+    Dropout      : 0.1 (EEGNet, ShallowConvNet), 0.25 (EMG_TCN)
+    Best-state   : checkpoint restored from best val epoch before test eval
 
-PHASE 1 — Feature extraction baselines
-  Implement three output formats in feature_extraction.py (flat_rep, flat_window, sequence)
-  Train SVM / XGBoost on Format 1 and Format 2 → establish accuracy baselines
-  Train LSTM / Transformer on Format 3 → compare against Format 4
-  Format 4 (raw signal, end-to-end deep learning) already complete — best: EMG_TCN 93.57%
+--------------------------------------------------------------------------------
+5. EXPERIMENTAL RESULTS
+--------------------------------------------------------------------------------
 
-PHASE 2 — Channel reduction via clustering
-  Cluster the 24 channels into 8 groups (clustering/)
-  Select 1 representative channel per cluster → 8 channels
-  Retrain all models using only 8 channels × 8 features = 64-dim per window
-  Compare accuracy against 24-channel baselines across all three formats
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  EXPERIMENT A — Pooled random split, 5 subjects (03–07)               │
+  │  Train/val/test: random stratified split at rep level                  │
+  │  Note: not LOSO — test subject is NOT held out from training           │
+  └─────────────────────────────────────────────────────────────────────────┘
 
-PHASE 3 — Generalization test
-  Evaluate final models on a new/unseen subject
-  Goal: robust cross-subject gesture recognition
+  Model           Test Acc   Notes
+  ─────────────── ────────   ─────────────────────────────────────────────
+  EMG_TCN          93.57%   dropout=0.25; single run; best overall
+  EEGNet           85–86%   approximate; varied across runs
+  ShallowConvNet   ~81%     approximate
+  DeepConvNet      ~60%     poor; more params than data can support
+  CNN_LSTM         ~51%     barely above chance (14.3%); likely vanishing grad
 
-Target: match or exceed 90% accuracy (putEMG paper SVM+RMS baseline)
-        while using only 8 of the 24 electrode channels
-Full plan: feature_approach_plan.txt
+  Baseline (random)         14.3%  (1/7 classes)
+  putEMG paper (SVM+RMS)   ~90%
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  EXPERIMENT B — LOSO, 44 subjects, 1 fold (seed=42)                   │
+  │  Test : subject 12 (emg_gestures_12_U.mat, 280 reps)                  │
+  │  Dev  : subject 27 (emg_gestures_27_U.mat, 280 reps)                  │
+  │  Train: 42 subjects, 11,760 reps total                                 │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  Model           Test Acc   Best Dev   Epochs   Notes
+  ─────────────── ────────   ────────   ──────   ──────────────────────────
+  EEGNet           86.07%     96.79%      20     completed; checkpoint saved
+  ShallowConvNet      —%         —%       8+     run incomplete (stopped early)
+  EMG_TCN             —%         —%        —     not yet run in LOSO config
+
+  EEGNet per-class prediction counts (test set, 280 samples):
+    G1=41  G2=27  G3=40  G6=28  G7=56  G8=43  G9=45
+
+  Saved checkpoints: formats/deep_learning_approach/model/weights/
+    EEGNet_best.pt   — test_acc=86.07%, dropout=0.1, n_folds=2,
+                        fold_accs=[85.71%, 86.07%]
+    EMG_TCN_best.pt  — test_acc=93.57%, dropout=0.25  (Experiment A)
+
+  KEY OBSERVATION: EEGNet LOSO (86.07%) is very close to the pooled result
+  (~85–86%) — suggesting EEGNet generalizes well cross-subject for this dataset.
+  EMG_TCN's pooled 93.57% will likely be lower under LOSO; this gap needs to
+  be measured to confirm which model is actually strongest cross-subject.
+
+--------------------------------------------------------------------------------
+6. BUGS FOUND AND FIXED
+--------------------------------------------------------------------------------
+
+  [FIXED — 2026-04-09]  dtype bug in evaluateFinal()
+    actual = torch.tensor([]) and predicted = torch.tensor([]) created float32
+    empty tensors. torch.cat with int64 label tensors silently promoted to
+    float32, corrupting confusion matrix class labels (showed 0., 1., ... as
+    floats). Did not affect accuracy calculation. Fixed: dtype=torch.int64.
+
+  [FIXED — 2026-04-09]  dead loop in loso_folds()
+    A partially-converted generator had for fold in range(n_folds): wrapping
+    a return — the loop was dead code with no subject rotation. Fixed: removed
+    the loop; loso_folds() is now a clean single-fold function. Multi-fold
+    iteration is handled externally via generate_loso_configs().
+
+--------------------------------------------------------------------------------
+7. STRENGTHS
+--------------------------------------------------------------------------------
+
+  1. COMPETITIVE RESULTS
+     93.57% (pooled) beats the putEMG paper SVM+RMS ~90%. 86.07% LOSO on a
+     single fold is a strong starting point for cross-subject evaluation.
+
+  2. FULL DATASET AVAILABLE
+     All 44 subjects preprocessed and loading at runtime. The 5-subject pooled
+     result can now be properly validated with a full LOSO experiment.
+
+  3. LOSO INFRASTRUCTURE COMPLETE
+     generate_loso_configs() produces seeded, reproducible fold assignments.
+     The training loop handles multi-fold runs with mean ± std reporting.
+
+  4. DUAL PIPELINE
+     Deep learning + hand-crafted features running in parallel. Allows direct
+     comparison between learned representations and interpretable features.
+
+  5. REAL-TIME CAPABILITY
+     Format 2 (flat_window, ~49 ms window) enables real-time inference.
+     Practically important for BCI deployment.
+
+  6. CLEAN PREPROCESSING
+     Bandpass before resampling (correct order). Per-rep, per-channel z-score.
+     Modular pipeline: each step is independently callable.
+
+--------------------------------------------------------------------------------
+8. WEAKNESSES & GAPS
+--------------------------------------------------------------------------------
+
+  1. EMG_TCN LOSO RESULT UNKNOWN [highest priority gap]
+     The 93.57% figure is from a pooled 5-subject split. EMG_TCN has not been
+     run under LOSO. The gap between EMG_TCN (93.57%) and EEGNet (86.07% LOSO)
+     may disappear or reverse once EMG_TCN is evaluated cross-subject.
+
+  2. ONLY 1 LOSO FOLD COMPLETED
+     One fold (subject 12 as test) is not enough to characterize generalization.
+     Need at minimum 5–10 folds with different test subjects for a stable mean ± std.
+
+  3. NO FEATURE FORMAT BASELINES
+     Formats 1, 2, 3 have no accuracy numbers. Cannot compare against 93.57% or
+     answer whether hand-crafted features compete with learned representations.
+
+  4. G9 HARD TO CLASSIFY CROSS-SUBJECT
+     EEGNet predicted G9 45 times (roughly correct) but temporal models
+     historically fail on G9. After per-rep z-score removes amplitude, G9
+     (little finger pinch) becomes nearly indistinguishable from G6–G8 for
+     waveform-pattern models. ShallowConvNet's band-power features handle this
+     better. No architectural fix applied yet.
+
+  5. FORMAT 3 FEATURE EXTRACTION INCOMPLETE
+     26 of 44 subjects have sequence features extracted. Remaining 18 need
+     processing before full-dataset Format 3 training.
+
+  6. CHANNEL CLUSTERING NOT FINALIZED
+     The 24→8 channel reduction experiment has code but no results yet. The
+     192-dim vs 64-dim accuracy comparison is still unmeasured.
+
+  7. DeepConvNet AND CNN_LSTM NOT RETESTED AT SCALE
+     Both disabled after poor 5-subject performance. With 44 subjects and
+     LOSO they may be viable — more data benefits deeper architectures.
+
+--------------------------------------------------------------------------------
+9. PRIORITY ORDER — NEXT STEPS
+--------------------------------------------------------------------------------
+
+  1. [UNBLOCKED] Run EMG_TCN and ShallowConvNet under full LOSO (N_FOLDS=5–10)
+     → most important missing number; will confirm whether 93.57% holds cross-subject
+
+  2. [UNBLOCKED] Run EEGNet LOSO for more folds
+     → stabilize the mean ± std; one fold is not enough
+
+  3. Complete Format 3 feature extraction for remaining 18 subjects (~5 min)
+     → unblocks full-dataset Format 3 training
+
+  4. Train baseline models for Formats 1, 2, 3 (SVM/XGBoost/LSTM)
+     → fills the biggest analytical gap
+
+  5. Run channel clustering and 64-dim accuracy comparison
+     → answers "do we need all 24 channels?"
+
+  Previously resolved:
+    [DONE] LR scheduling (ReduceLROnPlateau)
+    [DONE] Best-state checkpoint restoration
+    [DONE] LOSO infrastructure (all 44 subjects)
+    [DONE] evaluateFinal dtype bug
+    [DONE] Multi-fold seeded LOSO loop
+
+--------------------------------------------------------------------------------
+10. PROJECT PLAN
+--------------------------------------------------------------------------------
+
+  PHASE 1 — Complete LOSO evaluation  [IN PROGRESS]
+    Run 5–10 folds with EEGNet, ShallowConvNet, EMG_TCN on all 44 subjects
+    Expected: mean accuracy with ± std; EMG_TCN may drop from 93.57%
+
+  PHASE 2 — Feature baseline evaluation  [PENDING]
+    Format 1: SVM (RBF), LinearSVC, XGBoost
+    Format 2: LinearSVC, XGBoost + majority vote over 26 windows/rep
+    Format 3: LSTM, GRU, BiLSTM (using handler.py)
+    Compare all against Format 4 LOSO results
+
+  PHASE 3 — Channel reduction  [PENDING]
+    Cluster 24 channels → 8 representative channels (clustering/clustering.ipynb)
+    Retrain all models on 64-dim features; compare vs 192-dim baseline
+    Question: do we need all 24 channels?
+
+  PHASE 4 — Subject-adaptive fine-tuning  [FUTURE]
+    Train on N-1 subjects, fine-tune last layers on calibration set from new subject
+    Most practical scenario for real BCI deployment
+
+  Target: match or exceed 90% LOSO accuracy (putEMG paper SVM+RMS baseline ~90%)
+          while using only 8 of the 24 electrode channels
+
+================================================================================
