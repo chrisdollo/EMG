@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>putEMG Prime — Progress Report</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div id="progress"></div>
+<div id="deck">
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 1 — COVER -->
+<div class="slide slide-cover active">
+  <div class="tag">Progress Report · April 2026</div>
+  <h1>Cross-Subject EMG Gesture Recognition</h1>
+  <div class="desc">
+    Building a generalizable, channel-efficient sEMG gesture recognition system using the
+    putEMG dataset — from within-subject baselines through cross-subject deep learning
+    to an anatomically-grounded reduced-channel deployment.
+  </div>
+  <div class="cover-meta">
+    <div>Dataset<br><span>putEMG (Kaczmarek et al., 2019)</span></div>
+    <div>Subjects<br><span>44 able-bodied</span></div>
+    <div>Channels<br><span>24 sEMG · 5120 Hz</span></div>
+    <div>Gestures<br><span>7 hand gestures</span></div>
+  </div>
+  <div class="slide-label">Slide 1 — Cover</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════ SLIDE 2 — ROADMAP -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Project Roadmap</h2>
+    <span class="phase">6 Phases</span>
+  </div>
+  <div class="phases">
+    <div class="phase-row">
+      <div class="ph-num">Phase 1 <span class="badge bd-done" style="margin-left:4px">Done</span></div>
+      <div class="ph-body">
+        <div class="ph-title">Within-Subject Classification &nbsp;<span style="font-size:0.74rem;color:var(--text3);font-weight:400">within_subject/</span></div>
+        <div class="ph-desc">3-fold CV per subject (38 subjects). Best: EMG_TCN 97.47% ± 2.78%. Feature-based variant still pending.</div>
+      </div>
+    </div>
+    <div class="phase-row">
+      <div class="ph-num">Phase 2 <span class="badge bd-prog" style="margin-left:4px">Active</span></div>
+      <div class="ph-body">
+        <div class="ph-title">Cross-Subject Generalization (LOSO) &nbsp;<span style="font-size:0.74rem;color:var(--text3);font-weight:400">generalizable/baseline_models/</span></div>
+        <div class="ph-desc">LOSO complete: EMG_TCN 80.76% ± 12.38% (44/44 folds). EEGNet &amp; ShallowConvNet pending full LOSO runs.</div>
+      </div>
+    </div>
+    <div class="phase-row">
+      <div class="ph-num">Phase 3 <span class="badge bd-pend" style="margin-left:4px">Pending</span></div>
+      <div class="ph-body">
+        <div class="ph-title">Channel Clustering &nbsp;<span style="font-size:0.74rem;color:var(--text3);font-weight:400">generalizable/clustering/</span></div>
+        <div class="ph-desc">Agglomerative clustering to reduce 24 channels → 8 representative channels. Run on both DL and feature-based representations.</div>
+      </div>
+    </div>
+    <div class="phase-row">
+      <div class="ph-num">Phase 4 <span class="badge bd-pend" style="margin-left:4px">Pending</span></div>
+      <div class="ph-body">
+        <div class="ph-title">Anatomical Validation &nbsp;<span style="font-size:0.74rem;color:var(--text3);font-weight:400">generalizable/clustering/</span></div>
+        <div class="ph-desc">Cross-reference clusters with the putEMG electrode-to-muscle-group map. Produce forearm diagram and compare DL vs feature-based selections.</div>
+      </div>
+    </div>
+    <div class="phase-row">
+      <div class="ph-num">Phase 5 <span class="badge bd-pend" style="margin-left:4px">Pending</span></div>
+      <div class="ph-body">
+        <div class="ph-title">Reduced-Channel Model &nbsp;<span style="font-size:0.74rem;color:var(--text3);font-weight:400">generalizable/efficient_model/</span></div>
+        <div class="ph-desc">Retrain on 8 selected channels. Target: match 24-channel LOSO baseline with one-third the electrodes.</div>
+      </div>
+    </div>
+    <div class="phase-row">
+      <div class="ph-num">Phase 6 <span class="badge bd-pend" style="margin-left:4px">Future</span></div>
+      <div class="ph-body">
+        <div class="ph-title">Real-Time Data Collection &nbsp;<span style="font-size:0.74rem;color:var(--text3);font-weight:400">tbd/</span></div>
+        <div class="ph-desc">Online streaming evaluation with new participants. Details TBD once Phases 1–5 are complete.</div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-label">Slide 2 — Roadmap</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ SLIDE 3 — DATASET -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Dataset — putEMG</h2>
+  </div>
+  <div class="stat-row" style="margin-bottom:18px">
+    <div class="stat-box"><div class="v blue">44</div><div class="l">Subjects</div></div>
+    <div class="stat-box"><div class="v blue">24</div><div class="l">sEMG Channels</div></div>
+    <div class="stat-box"><div class="v blue">7</div><div class="l">Gesture Classes</div></div>
+    <div class="stat-box"><div class="v blue">5120</div><div class="l">Hz Sample Rate</div></div>
+  </div>
+  <div class="col2">
+    <div>
+      <div class="card">
+        <div class="card-title">Recording Protocol</div>
+        <ul class="bl">
+          <li>~40 repetitions per gesture per subject across 2 sessions (5 series each)</li>
+          <li>Gestures: <strong>G1, G2, G3, G6, G7, G8, G9</strong> — hand and finger flexions</li>
+          <li>Electrodes arranged as a sparse matrix around the forearm</li>
+          <li>~280 gesture repetitions per subject after preprocessing</li>
+          <li>Raw format: one CSV per recording session (24 channels + trajectory label)</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="card-title">Why This Dataset</div>
+        <ul class="bl">
+          <li>Public benchmark with a <strong>published SVM baseline of ~90%</strong> (within-subject)</li>
+          <li>44 subjects — sufficient scale for LOSO cross-subject evaluation</li>
+          <li>Known electrode layout → enables anatomical validation in Phase 4</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Preprocessing Steps</div>
+      <ul class="bl">
+        <li><strong>MATLAB pipeline</strong> — CSV → detect gesture boundaries → combinedCell (N_reps × 7) <span style="color:var(--text3)">· data_preprocessing/gesture_splitting_pipeline/</span></li>
+        <li><strong>Bandpass filter</strong> — 20–500 Hz, zero-phase Butterworth order 4, applied <em>before</em> resampling to prevent aliasing <span style="color:var(--text3)">· preprocessing.py</span></li>
+        <li><strong>Resampling</strong> — downsampled to 1500 samples per repetition</li>
+        <li><strong>Normalization</strong> — per-channel z-score per repetition</li>
+        <li>Output: (1500, 24) float64 per rep, 44 .mat files <span style="color:var(--text3)">· /Volumes/KRIS/data/UG_per_subject/</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="slide-label">Slide 3 — Dataset</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 4 — PIPELINE -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Signal Processing Pipeline</h2>
+  </div>
+  <div class="col2">
+    <div>
+      <div class="pipeline">
+        <div class="pipe-row">
+          <div class="num">01</div>
+          <div><div class="pt">Raw CSV Data</div><div class="pd">24 sEMG channels + gesture trajectory labels per session</div></div>
+        </div>
+        <div class="pipe-connector"></div>
+        <div class="pipe-row">
+          <div class="num">02</div>
+          <div><div class="pt">MATLAB — Gesture Splitting</div><div class="pd">Detect gesture boundaries → combinedCell (N_reps × 7) · data_preprocessing/</div></div>
+        </div>
+        <div class="pipe-connector"></div>
+        <div class="pipe-row">
+          <div class="num">03</div>
+          <div><div class="pt">Python — Signal Preprocessing</div><div class="pd">Bandpass 20–500 Hz → resample to 1500 samples → z-score per channel</div></div>
+        </div>
+        <div class="pipe-connector"></div>
+        <div class="pipe-row">
+          <div class="num">04A</div>
+          <div><div class="pt">Deep Learning Path</div><div class="pd">Input (1, 24, 1500) → EEGNet / ShallowConvNet / EMG_TCN · public/deep_learning_models.py</div></div>
+        </div>
+        <div class="pipe-connector"></div>
+        <div class="pipe-row">
+          <div class="num">04B</div>
+          <div><div class="pt">Feature-Based Path</div><div class="pd">Sliding window → 8 features × 24 ch → (26, 192) sequence · data_preprocessing/feature_extraction.py</div></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card accent-left">
+        <div class="card-title">Feature Extraction Detail</div>
+        <ul class="bl">
+          <li>Window size: <strong>250 samples</strong> (~49 ms at 5120 Hz)</li>
+          <li>Window stride: <strong>50 samples</strong> (~10 ms)</li>
+          <li><strong>26 windows</strong> per 1500-sample repetition</li>
+          <li>Initial: <strong>8 features per channel</strong> — MAV, RMS, WL, ZC, SSC, VAR, MNF, MDF</li>
+          <li>Later: expand to <strong>50 features per channel</strong> then select best 8–12</li>
+          <li>Current shape per rep: <strong>(26, 192)</strong> = 26 windows × 8 × 24</li>
+        </ul>
+      </div>
+      <div class="note" style="margin-top:14px">
+        <strong>Data leakage prevention:</strong> splits are at the repetition level, never the window level. Windows from the same rep must not appear in both train and test sets.
+      </div>
+      <div class="note warn" style="margin-top:10px">
+        <strong>TODO:</strong> Find a research paper justifying the choice of 8–12 features for sEMG classification (feature selection saturation or established benchmark).
+      </div>
+    </div>
+  </div>
+  <div class="slide-label">Slide 4 — Pipeline</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ SLIDE 5 — MODELS -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Model Architectures</h2>
+  </div>
+  <div class="col2">
+    <div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">Deep Learning — Raw Signal &nbsp;·&nbsp; Input (1, 24, 1500) &nbsp;·&nbsp; <span style="color:var(--text3)">public/deep_learning_models.py</span></div>
+        <table>
+          <thead><tr><th>Model</th><th>Architecture</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="em">EMG_TCN</td><td>Dilated temporal convolutions + residual connections</td><td><span class="badge bd-done">Active</span></td></tr>
+            <tr><td class="em">EEGNet</td><td>Depthwise + separable convolutions (BCI standard)</td><td><span class="badge bd-done">Active</span></td></tr>
+            <tr><td class="em">ShallowConvNet</td><td>Temporal conv → band-power pooling (x² → avgpool → log)</td><td><span class="badge bd-done">Active</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="card-title">Feature-Based — Sequence Models &nbsp;·&nbsp; Input (26, 192)</div>
+        <table>
+          <thead><tr><th>Model</th><th>Mechanism</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>LSTM / BiLSTM</td><td>Recurrent — reads 26-step sequence, outputs label</td><td><span class="badge bd-pend">Pending</span></td></tr>
+            <tr><td>GRU</td><td>Lighter recurrent alternative to LSTM</td><td><span class="badge bd-pend">Pending</span></td></tr>
+            <tr><td>Transformer</td><td>Self-attention over 26 timesteps + mean pooling</td><td><span class="badge bd-pend">Pending</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Shared Training Configuration</div>
+      <ul class="bl">
+        <li>Optimizer: <strong>Adam</strong></li>
+        <li>LR scheduler: <strong>ReduceLROnPlateau</strong> — factor 0.5, patience 5, min LR 1×10⁻⁶</li>
+        <li>Early stopping: patience 5, min delta 0.001–0.002</li>
+        <li>Dropout: 0.1 · Best-epoch checkpoint restored before test evaluation</li>
+        <li>Within-subject: <strong>max 30 epochs</strong>, 3-fold CV per subject</li>
+        <li>Cross-subject (LOSO): <strong>max 20 epochs</strong>, 1 subject held out per fold</li>
+        <li>Shared code: <span style="color:var(--text3)">public/emg_loader.py &nbsp;·&nbsp; public/deep_learning_models.py</span></li>
+      </ul>
+      <div class="note" style="margin-top:14px">
+        <strong>LOSO:</strong> train on 43 subjects, test on 1 completely unseen subject. Repeated for all 44 subjects. Mean ± std over all folds is the reported metric.
+      </div>
+      <div class="note warn" style="margin-top:10px">
+        Additional architectures may be explored in later phases. Current three models (EMG_TCN, EEGNet, ShallowConvNet) form the established baseline.
+      </div>
+    </div>
+  </div>
+  <div class="slide-label">Slide 5 — Models</div>
+</div>
+
+<!-- ════════════════════════════════════════════ SLIDE 6 — PHASE 1 RESULTS -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Phase 1 — Within-Subject Classification</h2>
+    <span class="phase">Completed · within_subject/</span>
+  </div>
+  <div class="col2">
+    <div>
+      <div class="stat-row" style="grid-template-columns:1fr 1fr 1fr; margin-bottom:14px">
+        <div class="stat-box"><div class="v green">97.47%</div><div class="l">EMG_TCN (mean)</div></div>
+        <div class="stat-box"><div class="v blue">93.50%</div><div class="l">ShallowConvNet</div></div>
+        <div class="stat-box"><div class="v blue">91.05%</div><div class="l">EEGNet</div></div>
+      </div>
+      <div class="card accent-green">
+        <div class="card-title">Grand Mean ± Std — 38 Subjects · 3-Fold CV</div>
+        <table>
+          <thead><tr><th>Model</th><th>Subjects</th><th>Mean Acc</th><th>Std</th></tr></thead>
+          <tbody>
+            <tr><td class="em">EMG_TCN</td><td>37</td><td class="hi">97.47%</td><td>±2.78%</td></tr>
+            <tr><td class="em">ShallowConvNet</td><td>38</td><td class="em">93.50%</td><td>±4.09%</td></tr>
+            <tr><td class="em">EEGNet</td><td>38</td><td class="em">91.05%</td><td>±5.56%</td></tr>
+            <tr><td class="dim">putEMG SVM+RMS</td><td class="dim">—</td><td class="dim">~90%</td><td class="dim">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note good" style="margin-top:12px">
+        All three models <strong>exceed the published SVM+RMS ~90% baseline</strong>. EMG_TCN leads by a large margin (97.47%), confirming the architecture is well-suited for this dataset.
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="card-title">Per-Model Accuracy Range Across Subjects</div>
+        <table>
+          <thead><tr><th>Model</th><th>Min</th><th>Max</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="em">EMG_TCN</td>
+              <td class="lo">85.90% <span style="font-size:0.72rem;color:var(--text3)">(subj 11)</span></td>
+              <td class="hi">100.00% <span style="font-size:0.72rem;color:var(--text3)">(5 subjects)</span></td>
+            </tr>
+            <tr>
+              <td class="em">ShallowConvNet</td>
+              <td>82.86% <span style="font-size:0.72rem;color:var(--text3)">(subj 06)</span></td>
+              <td>98.19% <span style="font-size:0.72rem;color:var(--text3)">(subj 33)</span></td>
+            </tr>
+            <tr>
+              <td class="em">EEGNet</td>
+              <td class="lo">72.82% <span style="font-size:0.72rem;color:var(--text3)">(subj 06)</span></td>
+              <td>98.90% <span style="font-size:0.72rem;color:var(--text3)">(subj 03)</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="card-title">Key Observations</div>
+        <ul class="bl">
+          <li>Within-subject is an <strong>upper bound</strong> — test data comes from the same person as training</li>
+          <li>Gap from within-subject (<strong>97.47%</strong>) to LOSO (<strong>77.07%</strong>) = <strong>20.4 points</strong> lost to cross-subject variability</li>
+          <li>Subject 11 and Subject 06 are consistently the hardest across all three models</li>
+          <li>Feature-based within-subject evaluation <strong>still pending</strong></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="slide-label">Slide 6 — Phase 1: Within-Subject</div>
+</div>
+
+<!-- ══════════════════════════════════════════════ SLIDE 7 — PHASE 2 LOSO -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Phase 2 — Cross-Subject Generalization (LOSO)</h2>
+    <span class="phase">Complete · EMG_TCN 44/44 Folds · generalizable/baseline_models/</span>
+  </div>
+  <div class="col2">
+    <div>
+      <div class="stat-row" style="grid-template-columns:1fr 1fr 1fr; margin-bottom:14px">
+        <div class="stat-box"><div class="v green">80.76%</div><div class="l">EMG_TCN Mean (44 folds)</div></div>
+        <div class="stat-box"><div class="v yellow">±12.38%</div><div class="l">Std Dev</div></div>
+        <div class="stat-box"><div class="v blue">86.07%</div><div class="l">EEGNet (1 fold, subj 12)</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Results — April 2026</div>
+        <table>
+          <thead><tr><th>Model</th><th>Setting</th><th>Accuracy</th></tr></thead>
+          <tbody>
+            <tr><td class="dim">EMG_TCN</td><td class="dim">Early pooled 5-subj run ⚠</td><td class="dim">93.57% — not LOSO</td></tr>
+            <tr><td class="em">EMG_TCN</td><td class="em">LOSO · 44/44 folds ✓</td><td class="hi">80.76% ± 12.38%</td></tr>
+            <tr><td>EEGNet</td><td>LOSO · 1 fold (subj 12)</td><td class="em">86.07%</td></tr>
+            <tr><td>ShallowConvNet</td><td>LOSO · not yet run</td><td class="dim">—</td></tr>
+            <tr><td class="dim">Feature-based</td><td class="dim">Not yet run</td><td class="dim">—</td></tr>
+            <tr><td class="dim">Random baseline</td><td class="dim">7 classes</td><td class="dim">14.29%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <div class="note warn" style="margin-bottom:12px">
+        <strong>On the 93.57% figure:</strong> That result was from an early notebook run using a pooled random split on subjects 03–07 only — test subjects were seen during training. It is not a LOSO result and should not be compared to the 80.76% LOSO mean.
+      </div>
+      <div class="card">
+        <div class="card-title">Key Observations</div>
+        <ul class="bl">
+          <li>80.76% is <strong>66.5 points above random</strong> (14.29%) — genuine cross-subject learning across all 44 subjects</li>
+          <li><strong>High variance (±12.38%)</strong>: results range from 53.93% to 99.29% — transfer is highly uneven across individuals</li>
+          <li>Validation accuracy is consistently 91–96% across all folds; the gap to test accuracy reflects subject-specific signal patterns that do not transfer</li>
+          <li>12 subjects score above 90%; 7 subjects score below 70%</li>
+          <li>Next: run EEGNet and ShallowConvNet full LOSO for cross-model comparison</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="slide-label">Slide 7 — Phase 2: LOSO Results</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ SLIDE 8 — PER-SUBJECT -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Phase 2 — Per-Subject LOSO Breakdown (EMG_TCN)</h2>
+    <span class="phase">44 / 44 Folds Complete · April 2026</span>
+  </div>
+  <div class="col2-wide">
+    <div class="card" style="overflow-y:auto; max-height:calc(100vh - 180px)">
+      <div class="card-title">Test Accuracy by Held-Out Subject</div>
+      <div class="bars" id="barChart"></div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">Statistics — 44 Folds</div>
+        <table>
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Mean test accuracy</td><td class="em">80.76%</td></tr>
+            <tr><td>Std deviation</td><td class="em">±12.38%</td></tr>
+            <tr><td>Best folds</td><td class="hi">Subj 14 &amp; 48 — 99.29%</td></tr>
+            <tr><td>Worst fold</td><td class="lo">Subject 06 — 53.93%</td></tr>
+            <tr><td>Val accuracy range</td><td>90.70% – 95.85%</td></tr>
+            <tr><td>Subjects ≥ 90%</td><td class="hi">12 / 44</td></tr>
+            <tr><td>Subjects &lt; 70%</td><td class="lo">7 / 44</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn" style="margin-bottom:10px">
+        <strong>High variance persists across all 44 subjects.</strong> Validation is near-uniform (~93%), but test accuracy spans 46 points. Subject-adaptive fine-tuning is likely needed to close this gap.
+      </div>
+      <div class="note">
+        Colour key: <span style="color:var(--green);font-weight:600">green</span> ≥ 86% &nbsp;·&nbsp;
+        <span style="color:var(--accent);font-weight:600">blue</span> 71–85% &nbsp;·&nbsp;
+        <span style="color:var(--red);font-weight:600">red</span> &lt; 71%
+      </div>
+    </div>
+  </div>
+  <div class="slide-label">Slide 8 — Phase 2: Per-Subject Results</div>
+</div>
+
+<!-- ═══════════════════════════════════════════ SLIDE 9 — PHASE 3: CLUSTERING -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Phase 3 — Channel Clustering</h2>
+    <span class="phase">To Be Implemented · generalizable/clustering/</span>
+  </div>
+  <div class="tbi-badge">⬜ Not yet started</div>
+  <div class="tbi-box">
+    <div class="tbi-title">Reduce 24 electrodes to 8 representative channels using agglomerative clustering</div>
+    <div class="tbi-desc">
+      24 sEMG channels is too many for a practical wearable BCI. This phase uses unsupervised clustering to identify
+      groups of highly correlated channels and selects one representative from each group — reducing the electrode
+      count by two-thirds while preserving the key signal variation.
+    </div>
+    <ul class="tbi-checklist">
+      <li><strong>Deep learning clustering</strong> — cluster channels based on learned feature representations from the trained LOSO model</li>
+      <li><strong>Feature-based clustering</strong> — cluster channels based on their hand-crafted feature vectors (MAV, RMS, etc.)</li>
+      <li><strong>Compare both sets</strong> — do DL and feature-based approaches select the same 8 channels?</li>
+      <li><strong>Validate on LOSO</strong> — retrain models on the 8 selected channels and compare accuracy to the 24-channel baseline</li>
+    </ul>
+    <div class="tbi-depends">Depends on: <span>Phase 2 (LOSO baseline complete) &nbsp;·&nbsp; Phase 1b (feature extraction for all 44 subjects)</span></div>
+  </div>
+  <div class="slide-label">Slide 9 — Phase 3: Channel Clustering</div>
+</div>
+
+<!-- ══════════════════════════════════════════ SLIDE 10 — PHASE 4: ANATOMICAL -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Phase 4 — Anatomical Validation of Clusters</h2>
+    <span class="phase">To Be Implemented · generalizable/clustering/</span>
+  </div>
+  <div class="tbi-badge">⬜ Not yet started</div>
+  <div class="tbi-box">
+    <div class="tbi-title">Cross-reference selected channels with the putEMG electrode-to-muscle-group map</div>
+    <div class="tbi-desc">
+      The putEMG paper provides the anatomical positions of all 24 electrodes relative to forearm muscle groups.
+      This phase validates whether the channels selected in Phase 3 correspond to the same anatomical muscle group
+      — as would be expected from physiology — or reveal unexpected cross-muscle correlations.
+    </div>
+    <ul class="tbi-checklist">
+      <li><strong>Map clusters to anatomy</strong> — use the putEMG electrode layout to label each cluster with its corresponding muscle group</li>
+      <li><strong>Produce electrode diagram</strong> — annotated forearm illustration showing selected channels and their muscle groups</li>
+      <li><strong>DL vs feature-based comparison</strong> — do both approaches converge on the same anatomical groups?</li>
+      <li><strong>Interpret discrepancies</strong> — if a selected channel belongs to a different muscle group than expected, understand why</li>
+    </ul>
+    <div class="tbi-depends">Depends on: <span>Phase 3 (channel clusters identified)</span></div>
+  </div>
+  <div class="slide-label">Slide 10 — Phase 4: Anatomical Validation</div>
+</div>
+
+<!-- ═════════════════════════════════════════════ SLIDE 11 — PHASE 5: REDUCED -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Phase 5 — Reduced-Channel Model</h2>
+    <span class="phase">To Be Implemented · generalizable/efficient_model/</span>
+  </div>
+  <div class="tbi-badge">⬜ Not yet started</div>
+  <div class="tbi-box">
+    <div class="tbi-title">Retrain all models on the 8 channels from Phase 3 and measure the accuracy trade-off</div>
+    <div class="tbi-desc">
+      Using the 8 representative channels identified in Phase 3, this phase produces the final reduced-channel models
+      and benchmarks them against the 24-channel LOSO baseline. The goal is to demonstrate that practical deployment
+      (fewer electrodes, simpler hardware) is achievable with minimal accuracy loss.
+    </div>
+    <ul class="tbi-checklist">
+      <li><strong>Deep learning (8-channel)</strong> — same EMG_TCN / EEGNet / ShallowConvNet on input shape (1, 8, 1500) &nbsp;·&nbsp; <span style="color:var(--text3)">generalizable/efficient_model/deep_learning_approach/</span></li>
+      <li><strong>Feature-based (8-channel)</strong> — same pipeline; if using best 8–12 features: <strong>64–96-dim</strong> per window vs 192-dim baseline &nbsp;·&nbsp; <span style="color:var(--text3)">generalizable/efficient_model/feature_based_approach/</span></li>
+      <li><strong>LOSO evaluation</strong> — same 44-fold protocol as Phase 2 for a direct comparison</li>
+      <li><strong>Report accuracy gap</strong> — quantify how much accuracy is lost by using 8 instead of 24 channels</li>
+    </ul>
+    <div class="tbi-depends">Depends on: <span>Phase 3 (8 channels selected) &nbsp;·&nbsp; Phase 2 (24-channel LOSO baseline as reference)</span></div>
+  </div>
+  <div class="slide-label">Slide 11 — Phase 5: Reduced-Channel Model</div>
+</div>
+
+<!-- ════════════════════════════════════════════ SLIDE 12 — PHASE 6: REAL-TIME -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Phase 6 — Real-Time Data Collection</h2>
+    <span class="phase">Future Work</span>
+  </div>
+  <div class="tbi-badge">⬜ Not yet started · details TBD</div>
+  <div class="tbi-box">
+    <div class="tbi-title">Evaluate the system in an online, streaming setting with new participants</div>
+    <div class="tbi-desc">
+      All previous phases operate offline on pre-recorded data. This final phase validates the system in a realistic
+      real-time scenario, streaming live sEMG signals and classifying gestures with low latency. Details will be
+      defined once Phases 1–5 are complete and the reduced-channel model is finalized.
+    </div>
+    <ul class="tbi-checklist">
+      <li><strong>Hardware setup</strong> — configure streaming sEMG acquisition with the 8-channel reduced electrode set</li>
+      <li><strong>Online preprocessing</strong> — replicate the offline bandpass → resample → z-score pipeline in real time</li>
+      <li><strong>Subject-adaptive calibration</strong> — brief calibration session (a few reps per gesture) to fine-tune the model for the new participant</li>
+      <li><strong>Latency and accuracy evaluation</strong> — measure both classification accuracy and end-to-end latency</li>
+    </ul>
+    <div class="tbi-depends">Depends on: <span>All Phases 1–5 complete &nbsp;·&nbsp; Reduced-channel model finalized</span></div>
+  </div>
+  <div class="slide-label">Slide 12 — Phase 6: Real-Time Data Collection</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ SLIDE 13 — KEY FINDINGS -->
+<div class="slide">
+  <div class="slide-header">
+    <h2>Key Findings &amp; Next Steps</h2>
+  </div>
+  <div class="col2">
+    <div>
+      <div class="card accent-green" style="margin-bottom:14px">
+        <div class="card-title">Accomplished</div>
+        <ul class="bl">
+          <li><strong>Within-subject DL validated</strong> — EMG_TCN 97.47%, ShallowConvNet 93.50%, EEGNet 91.05% across 38 subjects (all exceed published SVM ~90%)</li>
+          <li><strong>Full LOSO infrastructure</strong> — automated seeded fold generation, per-fold checkpointing, result logging</li>
+          <li><strong>EMG_TCN LOSO complete</strong> — 80.76% ± 12.38% over all 44/44 folds; full cross-subject baseline established</li>
+          <li><strong>Dual pipeline ready</strong> — deep learning and feature-based paths both built and operational</li>
+          <li>Two significant bugs found and fixed (dtype and dead loop in LOSO training loop)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">The Core Challenge</div>
+        <ul class="bl">
+          <li>17-point accuracy gap: within-subject <strong>97.47%</strong> → LOSO <strong>80.76%</strong></li>
+          <li>±12.38% std over 44 folds — some subjects near-perfect (99%), others near-chance (54%)</li>
+          <li>High validation (~94%) but variable test accuracy — model overfits to the training population</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="card accent-left" style="margin-bottom:14px">
+        <div class="card-title">Immediate Next Steps</div>
+        <ul class="bl">
+          <li><span class="badge bd-done">Done</span> &nbsp; <strong>EMG_TCN LOSO 44/44 folds</strong> — 80.76% ± 12.38%</li>
+          <li><span class="badge bd-prog">Unblocked</span> &nbsp; Run <strong>EEGNet and ShallowConvNet full LOSO</strong> for cross-model comparison</li>
+          <li><span class="badge bd-pend">Pending</span> &nbsp; Feature extraction for <strong>18 remaining subjects</strong> → unblock feature-based training</li>
+          <li><span class="badge bd-pend">Pending</span> &nbsp; Within-subject feature-based evaluation (LSTM, GRU, Transformer)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Highest-Leverage Experiment</div>
+        <ul class="bl">
+          <li><strong>Subject-adaptive fine-tuning</strong> — given the 20-point LOSO gap, fine-tuning the final model layers on a small calibration set from the test subject is the single most impactful next experiment</li>
+          <li>Train on N−1 subjects → fine-tune on a few reps from the test subject</li>
+          <li>Expected to close most of the 97.47% → 77.07% gap</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="slide-label">Slide 13 — Key Findings &amp; Next Steps</div>
+</div>
+
+</div><!-- #deck -->
+
+<nav id="nav">
+  <button id="prev" onclick="go(-1)">&#8592;</button>
+  <span id="counter">1 / 13</span>
+  <button id="next" onclick="go(1)">&#8594;</button>
+</nav>
+
+<script src="slides.js"></script>
+</body>
+</html>

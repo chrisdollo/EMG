@@ -1,6 +1,6 @@
 ================================================================================
   putEMG Prime — Project Report & Analysis
-  Last updated: 2026-04-09
+  Last updated: 2026-04-20
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -33,63 +33,59 @@ STAGE 1 — Signal Preprocessing
   Output: /Volumes/KRIS/data/UG_per_subject/emg_gestures_SS_U.mat  (44 files)
   Shape: combinedCell (N_reps, 7), each cell (1500, 24) float64
 
-STAGE 2A — Feature Extraction (for feature-based models)
+STAGE 2A — Feature Extraction (for feature-based approach)
   Code : data_preprocessing/feature_extraction.py
          data_preprocessing/driver.ipynb
   Window: size=250 samples (~49 ms), shift=50 samples (~10 ms) → 26 windows/rep
   Features: 8 per channel × 24 channels = 192-dim vector per window
     MAV, RMS, WL, ZC, SSC, VAR, MNF, MDF
+  Output format: (26, 192) per rep — temporal sequence
+  Output files : features_subject_SS_sequence.npz
 
-STAGE 2B — Deep Learning Data Loading (for CNN/TCN models)
-  Code : formats/deep_learning_approach/model/emg_datahandler.py
+STAGE 2B — Deep Learning Data Loading
+  Code : public/emg_loader.py
   Loads preprocessed .mat files at runtime; reshapes to (N, 1, 24, 1500)
   LOSO splits via make_loso_loaders() / loso_folds() / generate_loso_configs()
 
 --------------------------------------------------------------------------------
-3. APPROACHES & FORMAT OVERVIEW
+3. APPROACHES
 --------------------------------------------------------------------------------
 
-  Format 1 — flat_rep     : (4992,) per rep   [26 windows × 192, concatenated]
-    Models     : SVM, XGBoost, MLP
-    Use case   : offline; simplest baseline
-    Status     : extraction implemented; training pending
+  APPROACH A — Deep Learning (raw signal, end-to-end)
+    Input shape : (1, 24, 1500) per rep
+    Models      : EEGNet, ShallowConvNet, EMG_TCN
+    Notebook    : generalizable/baseline_models/deep_learning_approach/model/model.ipynb
+    Shared code : public/deep_learning_models.py, public/emg_loader.py
+    Status      : EMG_TCN LOSO 15/44 folds complete (mean 77.07% ± 13.28%)
+                  EEGNet LOSO 1 fold complete (86.07% on subject 12)
 
-  Format 2 — flat_window  : (192,) per window
-    Models     : SVM, XGBoost, MLP, 2D CNN
-    Use case   : offline + real-time; largest dataset; majority vote for offline
-    Status     : extraction implemented; training pending
-
-  Format 3 — sequence     : (26, 192) per rep
-    Models     : LSTM, GRU, BiLSTM, Transformer
-    Use case   : offline; captures temporal dynamics
-    Status     : extraction done for 26 subjects; 18 remaining; training pending
-
-  Format 4 — raw signal   : (1, 24, 1500) per rep   [end-to-end deep learning]
-    Models     : EEGNet, ShallowConvNet, EMG_TCN  (best: 93.57%)
-    Use case   : offline; model learns its own representations
-    Status     : COMPLETE — see results below
+  APPROACH B — Feature-Based (sequence model on hand-crafted features)
+    Input shape : (26, 192) per rep — temporal sequence of 192-dim feature vectors
+    Models      : LSTM, GRU, Transformer
+    Notebook    : generalizable/baseline_models/feature_based_approach/model/model.ipynb
+    Status      : extraction done for 26/44 subjects; training not yet run
 
   NOTE: splits must be at the rep level (not window level) to avoid data leakage.
 
 --------------------------------------------------------------------------------
-4. MODEL ARCHITECTURES  (Format 4 — deep learning)
+4. MODEL ARCHITECTURES — Deep Learning Approach
 --------------------------------------------------------------------------------
 
   All models: NUM_CLASSES=7, NUM_CHANNELS=24, INPUT_SAMPLES=1500
-  Code: formats/deep_learning_approach/model/deep_learning_models.py
+  Code: public/deep_learning_models.py
 
   EEGNet         — depthwise + separable convolutions; standard BCI architecture
   ShallowConvNet — temporal conv → band-power pooling (x² → avgpool → log)
-  DeepConvNet    — deeper block-based CNN                [currently disabled]
-  CNN_LSTM       — spatial CNN + temporal LSTM           [currently disabled]
-  EMG_TCN        — dilated temporal convolutions + residual connections  [BEST]
+  DeepConvNet    — deeper block-based CNN                [disabled — needs more data]
+  CNN_LSTM       — spatial CNN + temporal LSTM           [disabled — poor performance]
+  EMG_TCN        — dilated temporal convolutions + residual connections
 
   Training config (model.ipynb):
     Optimizer    : Adam
     LR scheduler : ReduceLROnPlateau (factor=0.5, patience=5, min_lr=1e-6)
     Early stop   : patience=5, min_delta=0.002
     Max epochs   : 20
-    Dropout      : 0.1 (EEGNet, ShallowConvNet), 0.25 (EMG_TCN)
+    Dropout      : 0.1
     Best-state   : checkpoint restored from best val epoch before test eval
 
 --------------------------------------------------------------------------------
@@ -104,7 +100,7 @@ STAGE 2B — Deep Learning Data Loading (for CNN/TCN models)
 
   Model           Test Acc   Notes
   ─────────────── ────────   ─────────────────────────────────────────────
-  EMG_TCN          93.57%   dropout=0.25; single run; best overall
+  EMG_TCN          93.57%   dropout=0.25; single run; optimistic (no subject holdout)
   EEGNet           85–86%   approximate; varied across runs
   ShallowConvNet   ~81%     approximate
   DeepConvNet      ~60%     poor; more params than data can support
@@ -114,30 +110,55 @@ STAGE 2B — Deep Learning Data Loading (for CNN/TCN models)
   putEMG paper (SVM+RMS)   ~90%
 
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │  EXPERIMENT B — LOSO, 44 subjects, 1 fold (seed=42)                   │
+  │  EXPERIMENT B — LOSO, 44 subjects, 1 fold                              │
   │  Test : subject 12 (emg_gestures_12_U.mat, 280 reps)                  │
-  │  Dev  : subject 27 (emg_gestures_27_U.mat, 280 reps)                  │
-  │  Train: 42 subjects, 11,760 reps total                                 │
+  │  EEGNet result only                                                     │
   └─────────────────────────────────────────────────────────────────────────┘
 
   Model           Test Acc   Best Dev   Epochs   Notes
   ─────────────── ────────   ────────   ──────   ──────────────────────────
   EEGNet           86.07%     96.79%      20     completed; checkpoint saved
   ShallowConvNet      —%         —%       8+     run incomplete (stopped early)
-  EMG_TCN             —%         —%        —     not yet run in LOSO config
 
-  EEGNet per-class prediction counts (test set, 280 samples):
-    G1=41  G2=27  G3=40  G6=28  G7=56  G8=43  G9=45
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  EXPERIMENT C — EMG_TCN LOSO, 15/44 folds complete (2026-04-20)       │
+  │  Sequential LOSO: subjects 03–17 as test, remainder as train           │
+  │  Saved weights: generalizable/baseline_models/deep_learning_approach/  │
+  │                 weights/EMG_TCN_SS.pt                                   │
+  └─────────────────────────────────────────────────────────────────────────┘
 
-  Saved checkpoints: formats/deep_learning_approach/model/weights/
-    EEGNet_best.pt   — test_acc=86.07%, dropout=0.1, n_folds=2,
-                        fold_accs=[85.71%, 86.07%]
-    EMG_TCN_best.pt  — test_acc=93.57%, dropout=0.25  (Experiment A)
+  Subject (test)   Test Acc   Val Acc   Epochs
+  ──────────────   ────────   ───────   ──────
+  Subject 03        98.21%    94.85%      20
+  Subject 04        71.07%    92.69%       9
+  Subject 05        67.14%    94.68%      17
+  Subject 06        53.93%    94.02%      11
+  Subject 07        63.57%    91.03%       5
+  Subject 08        73.21%    94.10%      19
+  Subject 09        82.50%    94.10%      20
+  Subject 10        88.93%    92.11%       6
+  Subject 11        73.57%    94.02%      19
+  Subject 12        92.50%    94.52%      20    ← same fold as EEGNet 86.07%
+  Subject 13        79.29%    95.43%      16
+  Subject 14        99.29%    95.18%      20
+  Subject 15        85.00%    93.60%      13
+  Subject 16        62.50%    94.10%      18
+  Subject 17        65.36%    93.94%      20
+  ──────────────   ────────
+  Mean (15 folds)   77.07%   ± 13.28%
 
-  KEY OBSERVATION: EEGNet LOSO (86.07%) is very close to the pooled result
-  (~85–86%) — suggesting EEGNet generalizes well cross-subject for this dataset.
-  EMG_TCN's pooled 93.57% will likely be lower under LOSO; this gap needs to
-  be measured to confirm which model is actually strongest cross-subject.
+  KEY OBSERVATIONS:
+  1. The pooled 93.57% does NOT hold under proper LOSO. The LOSO mean drops to
+     77.07% — confirming that the pooled result was optimistic (test subjects
+     were seen during training).
+  2. Very high variance (±13.28%): some subjects are easy (subject 14: 99.29%,
+     subject 03: 98.21%) while others are hard (subject 06: 53.93%).
+  3. Val accuracy is consistently high (91–95%) for all folds. The gap between
+     val and test accuracy is driven by subject-specific signal characteristics
+     that do not transfer well across subjects.
+  4. On the same test subject (12): EMG_TCN 92.50% vs EEGNet 86.07%. EMG_TCN
+     outperforms EEGNet on this fold; cross-model comparison needs more folds.
+  5. 29 folds remain to stabilize the LOSO mean.
 
 --------------------------------------------------------------------------------
 6. BUGS FOUND AND FIXED
@@ -159,27 +180,24 @@ STAGE 2B — Deep Learning Data Loading (for CNN/TCN models)
 7. STRENGTHS
 --------------------------------------------------------------------------------
 
-  1. COMPETITIVE RESULTS
-     93.57% (pooled) beats the putEMG paper SVM+RMS ~90%. 86.07% LOSO on a
-     single fold is a strong starting point for cross-subject evaluation.
+  1. EMG_TCN LOSO RESULTS NOW AVAILABLE
+     15/44 folds complete. Mean 77.07% ± 13.28% — a realistic cross-subject
+     baseline. Beats random chance (14.3%) by 62 percentage points. Per-subject
+     weights saved for fine-tuning / analysis.
 
   2. FULL DATASET AVAILABLE
-     All 44 subjects preprocessed and loading at runtime. The 5-subject pooled
-     result can now be properly validated with a full LOSO experiment.
+     All 44 subjects preprocessed and loading at runtime.
 
   3. LOSO INFRASTRUCTURE COMPLETE
      generate_loso_configs() produces seeded, reproducible fold assignments.
      The training loop handles multi-fold runs with mean ± std reporting.
+     Results logged automatically to results_log.txt per run.
 
   4. DUAL PIPELINE
-     Deep learning + hand-crafted features running in parallel. Allows direct
-     comparison between learned representations and interpretable features.
+     Deep learning + feature-based sequence models running in parallel. Allows
+     direct comparison between learned representations and interpretable features.
 
-  5. REAL-TIME CAPABILITY
-     Format 2 (flat_window, ~49 ms window) enables real-time inference.
-     Practically important for BCI deployment.
-
-  6. CLEAN PREPROCESSING
+  5. CLEAN PREPROCESSING
      Bandpass before resampling (correct order). Per-rep, per-channel z-score.
      Modular pipeline: each step is independently callable.
 
@@ -187,55 +205,56 @@ STAGE 2B — Deep Learning Data Loading (for CNN/TCN models)
 8. WEAKNESSES & GAPS
 --------------------------------------------------------------------------------
 
-  1. EMG_TCN LOSO RESULT UNKNOWN [highest priority gap]
-     The 93.57% figure is from a pooled 5-subject split. EMG_TCN has not been
-     run under LOSO. The gap between EMG_TCN (93.57%) and EEGNet (86.07% LOSO)
-     may disappear or reverse once EMG_TCN is evaluated cross-subject.
+  1. HIGH LOSO VARIANCE — cross-subject generalization is inconsistent
+     77.07% ± 13.28% over 15 folds means some subjects are near-perfectly
+     classified (99.29%) while others are only just above chance (53.93%).
+     Root cause unknown: could be signal quality, individual anatomy, or
+     gesture execution style. Subject-adaptive methods may be required.
 
-  2. ONLY 1 LOSO FOLD COMPLETED
-     One fold (subject 12 as test) is not enough to characterize generalization.
-     Need at minimum 5–10 folds with different test subjects for a stable mean ± std.
+  2. ONLY 15/44 LOSO FOLDS COMPLETE FOR EMG_TCN
+     Need remaining 29 folds to confirm whether mean 77.07% is stable.
+     EEGNet has only 1 fold (86.07% on subject 12) — cannot compare models yet.
 
-  3. NO FEATURE FORMAT BASELINES
-     Formats 1, 2, 3 have no accuracy numbers. Cannot compare against 93.57% or
-     answer whether hand-crafted features compete with learned representations.
+  3. NO FEATURE-BASED RESULTS YET
+     Feature-based approach (LSTM/GRU/Transformer on sequence) has no accuracy
+     numbers. Cannot compare against deep learning or answer whether hand-crafted
+     features compete with learned representations.
 
   4. G9 HARD TO CLASSIFY CROSS-SUBJECT
-     EEGNet predicted G9 45 times (roughly correct) but temporal models
-     historically fail on G9. After per-rep z-score removes amplitude, G9
-     (little finger pinch) becomes nearly indistinguishable from G6–G8 for
-     waveform-pattern models. ShallowConvNet's band-power features handle this
-     better. No architectural fix applied yet.
+     After per-rep z-score removes amplitude, G9 (little finger pinch) becomes
+     nearly indistinguishable from G6–G8 for waveform-pattern models.
 
-  5. FORMAT 3 FEATURE EXTRACTION INCOMPLETE
+  5. FEATURE EXTRACTION INCOMPLETE
      26 of 44 subjects have sequence features extracted. Remaining 18 need
-     processing before full-dataset Format 3 training.
+     processing before full-dataset feature-based training.
 
   6. CHANNEL CLUSTERING NOT FINALIZED
-     The 24→8 channel reduction experiment has code but no results yet. The
-     192-dim vs 64-dim accuracy comparison is still unmeasured.
-
-  7. DeepConvNet AND CNN_LSTM NOT RETESTED AT SCALE
-     Both disabled after poor 5-subject performance. With 44 subjects and
-     LOSO they may be viable — more data benefits deeper architectures.
+     The 24→8 channel reduction experiment has code but no results yet.
 
 --------------------------------------------------------------------------------
 9. PRIORITY ORDER — NEXT STEPS
 --------------------------------------------------------------------------------
 
-  1. [UNBLOCKED] Run EMG_TCN and ShallowConvNet under full LOSO (N_FOLDS=5–10)
-     → most important missing number; will confirm whether 93.57% holds cross-subject
+  1. [IN PROGRESS] Complete EMG_TCN LOSO for remaining 29 folds (subjects 18–54)
+     → stabilize mean ± std; determine if 77.07% is representative
 
-  2. [UNBLOCKED] Run EEGNet LOSO for more folds
-     → stabilize the mean ± std; one fold is not enough
+  2. [UNBLOCKED] Run EEGNet LOSO for 5–10 folds
+     → cross-model comparison against EMG_TCN; which architecture generalizes better?
 
-  3. Complete Format 3 feature extraction for remaining 18 subjects (~5 min)
-     → unblocks full-dataset Format 3 training
+  3. Investigate high-variance subjects (06, 07, 05, 16, 17)
+     → check signal quality, gesture execution differences; may inform adaptive approach
 
-  4. Train baseline models for Formats 1, 2, 3 (SVM/XGBoost/LSTM)
-     → fills the biggest analytical gap
+  4. Complete feature extraction for remaining 18 subjects (~5 min)
+     → unblocks full-dataset feature-based training
 
-  5. Run channel clustering and 64-dim accuracy comparison
+  5. Train feature-based models (LSTM/GRU/Transformer on sequence data)
+     → fills the biggest analytical gap; direct comparison vs deep learning
+
+  6. Subject-adaptive fine-tuning experiment
+     → given large LOSO variance, fine-tuning on a few calibration reps from
+        test subject may give large gains
+
+  7. Run channel clustering and 64-dim accuracy comparison
      → answers "do we need all 24 channels?"
 
   Previously resolved:
@@ -244,31 +263,35 @@ STAGE 2B — Deep Learning Data Loading (for CNN/TCN models)
     [DONE] LOSO infrastructure (all 44 subjects)
     [DONE] evaluateFinal dtype bug
     [DONE] Multi-fold seeded LOSO loop
+    [DONE] Consolidated to 2 approaches (removed flat_rep and flat_window formats)
+    [DONE] Shared code moved to public/ (emg_loader.py, deep_learning_models.py)
+    [DONE] EMG_TCN LOSO 15/44 folds — mean 77.07% ± 13.28%
 
 --------------------------------------------------------------------------------
 10. PROJECT PLAN
 --------------------------------------------------------------------------------
 
-  PHASE 1 — Complete LOSO evaluation  [IN PROGRESS]
-    Run 5–10 folds with EEGNet, ShallowConvNet, EMG_TCN on all 44 subjects
-    Expected: mean accuracy with ± std; EMG_TCN may drop from 93.57%
+  PHASE 1 — Complete LOSO evaluation  [IN PROGRESS — 15/44 folds done]
+    Run remaining 29 folds with EMG_TCN; run EEGNet for 5–10 folds
+    Target: stable mean ± std for both models; cross-model comparison
+    Current: EMG_TCN 77.07% ± 13.28% (15 folds); EEGNet 86.07% (1 fold)
 
-  PHASE 2 — Feature baseline evaluation  [PENDING]
-    Format 1: SVM (RBF), LinearSVC, XGBoost
-    Format 2: LinearSVC, XGBoost + majority vote over 26 windows/rep
-    Format 3: LSTM, GRU, BiLSTM (using handler.py)
-    Compare all against Format 4 LOSO results
+  PHASE 2 — Feature-based evaluation  [PENDING]
+    LSTM, GRU, Transformer on (26, 192) sequence data, LOSO
+    Compare against deep learning LOSO results
 
-  PHASE 3 — Channel reduction  [PENDING]
-    Cluster 24 channels → 8 representative channels (clustering/clustering.ipynb)
+  PHASE 3 — Subject-adaptive fine-tuning  [NEXT PRIORITY given LOSO variance]
+    Given 77.07% ± 13.28% LOSO variance, fine-tuning on a few reps from
+    the test subject is likely to yield large gains. Train on N-1 subjects,
+    fine-tune last layers on calibration set from new subject.
+    Most practical scenario for real BCI deployment.
+
+  PHASE 4 — Channel reduction  [PENDING]
+    Cluster 24 channels → 8 representative channels (clustering/)
     Retrain all models on 64-dim features; compare vs 192-dim baseline
     Question: do we need all 24 channels?
 
-  PHASE 4 — Subject-adaptive fine-tuning  [FUTURE]
-    Train on N-1 subjects, fine-tune last layers on calibration set from new subject
-    Most practical scenario for real BCI deployment
-
-  Target: match or exceed 90% LOSO accuracy (putEMG paper SVM+RMS baseline ~90%)
-          while using only 8 of the 24 electrode channels
+  Target: exceed 90% LOSO mean accuracy (putEMG paper SVM+RMS baseline ~90%)
+          with potential to reduce from 24 to fewer electrode channels
 
 ================================================================================

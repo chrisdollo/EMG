@@ -428,6 +428,47 @@ def load_feature_subjects(dir_path, mode):
     return subjects
 
 
+def make_loso_train_val_test(subjects, test_subject_idx, val_frac=0.10, batch_size=BATCH_SIZE, seed=42):
+    """
+    LOSO split with within-pool validation.
+
+    Test  = one held-out subject (never seen during training).
+    Train = 90% of remaining subjects' data (stratified by class, seeded).
+    Val   = 10% of remaining subjects' data — used only for early stopping.
+
+    No subject is wasted as a dedicated dev holdout; all N-1 subjects
+    contribute to the training pool.
+    """
+    N = len(subjects)
+    assert 0 <= test_subject_idx < N
+
+    test_name, X_test, y_test = subjects[test_subject_idx]
+
+    pool_X = np.concatenate([X for i, (_, X, _) in enumerate(subjects) if i != test_subject_idx])
+    pool_y = np.concatenate([y for i, (_, _, y) in enumerate(subjects) if i != test_subject_idx])
+
+    rng = np.random.default_rng(seed)
+    train_idx, val_idx = [], []
+    for cls in np.unique(pool_y):
+        idx = np.where(pool_y == cls)[0].copy()
+        rng.shuffle(idx)
+        n_val = max(1, round(len(idx) * val_frac))
+        val_idx.extend(idx[:n_val])
+        train_idx.extend(idx[n_val:])
+
+    X_train, y_train = pool_X[train_idx], pool_y[train_idx]
+    X_val,   y_val   = pool_X[val_idx],   pool_y[val_idx]
+
+    print(f"  Test  : {test_name}  ({X_test.shape[0]} reps)")
+    print(f"  Train : {X_train.shape[0]} reps  |  Val: {X_val.shape[0]} reps  ({N-1} subjects, 90/10 split)")
+
+    train_loader = DataLoader(BCIDataset(X_train, y_train), batch_size=batch_size, shuffle=True)
+    val_loader   = DataLoader(BCIDataset(X_val,   y_val),   batch_size=batch_size, shuffle=False)
+    test_loader  = DataLoader(BCIDataset(X_test,  y_test),  batch_size=batch_size, shuffle=False)
+
+    return train_loader, val_loader, test_loader
+
+
 def make_loso_splits(subjects, test_subject_idx, dev_subject_idx):
     """
     Build train / dev / test numpy splits for one LOSO fold.

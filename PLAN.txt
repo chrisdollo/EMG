@@ -1,0 +1,132 @@
+putEMG Prime — Project Plan
+============================
+
+Goal: Build a generalizable, channel-efficient sEMG gesture recognition system using
+the putEMG dataset. The project progresses from within-subject baselines to full
+cross-subject models, then narrows to a practical reduced-channel deployment suitable
+for real BCI use.
+
+--------------------------------------------------------------------------------
+Phase 1 — Within-Subject Classification
+Folder : within_subject/
+Status : Deep learning DONE | Feature-based PENDING
+--------------------------------------------------------------------------------
+
+Reproduce and extend the original putEMG paper's within-subject classification
+results using deep learning, establishing an internal benchmark before tackling
+the harder cross-subject problem.
+
+  a) Deep learning approach (raw signals, input shape 1×24×1500)
+     Folder  : within_subject/deep_learning_approach/
+     - 3-fold cross-validation, 38 subjects, seed 42
+     - Models: EMG_TCN, EEGNet, ShallowConvNet
+     - Results (grand mean ± std across subjects):
+         EMG_TCN        97.47% ± 2.78%   ← best
+         ShallowConvNet 93.50% ± 4.09%
+         EEGNet         91.05% ± 5.56%
+     - All three models exceed the published SVM+RMS baseline (~90%)
+     - Status: DONE
+
+  b) Feature-based approach (sliding-window hand-crafted features)
+     Folder  : within_subject/feature_based_approach/  [to be created]
+     - Start with 8 features per channel (MAV, RMS, WL, ZC, SSC, VAR, MNF, MDF)
+       Window size: 250 samples, stride: 50 samples → 26 windows per rep
+       Feature vector per window: 8 × 24 = 192-dim
+     - Later: expand to 50 features per channel (600 total candidates per window)
+       and apply feature selection to identify the best 8–12 features
+     - NOTE: find a research paper to justify the choice of 8–12 features
+       (expected basis: saturation of accuracy gain, computational cost,
+        or an established EMG feature selection benchmark)
+     - Status: PENDING
+
+--------------------------------------------------------------------------------
+Phase 2 — Cross-Subject Generalization  (LOSO Baseline)
+Folder : generalizable/baseline_models/
+Status : IN PROGRESS
+--------------------------------------------------------------------------------
+
+Train models that generalize to completely unseen subjects using Leave-One-Subject-Out
+(LOSO) evaluation — the gold standard for cross-subject generalization.
+
+  Deep learning approach:
+     Folder  : generalizable/baseline_models/deep_learning_approach/
+     Models  : EMG_TCN, EEGNet, ShallowConvNet (same three as Phase 1)
+               Additional architectures may be explored as the baseline matures.
+
+  Feature-based approach:
+     Folder  : generalizable/baseline_models/feature_based_approach/
+     Input   : (26, 192) sequence per rep — same feature extraction as Phase 1b
+     Models  : LSTM, GRU, Transformer
+
+  Steps:
+  1. Train on 43 subjects, test on 1 held-out subject, repeated for all 44 folds.
+  2. Report mean accuracy ± std across all folds.
+  3. The model trained on all 44 subjects becomes the final cross-subject baseline.
+  4. Both deep learning and feature-based approaches are evaluated.
+
+  Current results:
+    EMG_TCN LOSO        — 77.07% ± 13.28%  (15/44 folds complete)
+    EEGNet  LOSO        — 86.07%            (1 fold, subject 12)
+    ShallowConvNet LOSO — not yet run
+    Feature-based       — PENDING
+
+--------------------------------------------------------------------------------
+Phase 3 — Channel Clustering
+Folder : generalizable/clustering/
+Status : PENDING
+--------------------------------------------------------------------------------
+
+24 channels is too many for a practical, wearable BCI. The goal is to reduce the
+electrode count to 8 representative channels without a significant loss of accuracy.
+
+  - Use agglomerative clustering to group the 24 channels into 8 clusters,
+    selecting one representative channel per cluster.
+  - Clustering is performed independently for both the deep learning approach
+    (using learned feature representations) and the feature-based approach
+    (using hand-crafted features), and the two sets of results are compared.
+
+--------------------------------------------------------------------------------
+Phase 4 — Anatomical Validation of Clusters
+Folder : generalizable/clustering/  [anatomical analysis added here]
+Status : PENDING
+--------------------------------------------------------------------------------
+
+Cross-reference the Phase 3 clusters with the electrode-to-muscle-group mapping
+described in the original putEMG paper.
+
+  - Determine whether the most correlated channels belong to the same anatomical
+    muscle group (as would be expected from physiology).
+  - Produce a diagram showing the forearm electrode layout with selected channels
+    and their corresponding muscle groups annotated.
+  - Compare whether the deep learning and feature-based approaches select
+    overlapping or divergent sets of channels.
+
+--------------------------------------------------------------------------------
+Phase 5 — Reduced-Channel Model
+Folder : generalizable/efficient_model/
+Status : PENDING
+--------------------------------------------------------------------------------
+
+Retrain the cross-subject baseline models using only the 8 channels identified in
+Phase 3, and measure how much accuracy is lost relative to the 24-channel baseline.
+
+  a) Deep learning version
+     Folder  : generalizable/efficient_model/deep_learning_approach/
+     - Same EMG_TCN / EEGNet / ShallowConvNet architectures on (1, 8, 1500) input
+
+  b) Feature-based version
+     Folder  : generalizable/efficient_model/feature_based_approach/  [to be created]
+     - Same pipeline on 8 channels; if using best 8–12 features: 64–96-dim per window
+       vs 192-dim for the 24-channel baseline
+
+  Target: match or closely approach the 24-channel cross-subject baseline
+          accuracy with one-third the electrode count.
+
+--------------------------------------------------------------------------------
+Phase 6 — Real-Time Data Collection  [FUTURE]
+Folder : tbd/
+Status : NOT STARTED
+--------------------------------------------------------------------------------
+
+Collect real-time sEMG data from new participants and evaluate the system in an
+online, streaming setting. Details to be defined once Phases 1–5 are complete.

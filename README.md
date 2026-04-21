@@ -3,7 +3,7 @@
 Two parallel pipelines for hand gesture recognition from surface electromyography (sEMG) signals, built on the [putEMG dataset](https://biolab.put.poznan.pl/putemg-dataset/):
 
 - **Deep learning approach** — CNN/TCN models on raw time-series (best: EMG_TCN, 93.57%)
-- **Feature approach** — hand-crafted features (8 × 24 channels = 192-dim) fed into SVM/XGBoost/MLP or sequence models, across three classification formats
+- **Feature-based approach** — hand-crafted features (8 × 24 channels = 192-dim) fed into LSTM/GRU/Transformer sequence models
 
 ---
 
@@ -26,10 +26,9 @@ The **putEMG** dataset ([Kaczmarek et al., 2019](https://www.mdpi.com/1424-8220/
 
 ```
 putEMG prime/
-├── data/
-│   ├── cvs_data_per_subject/          # Raw CSVs — one folder per subject
-│   ├── NUG_per_subject/               # Per-subject non-uniform gesture .mat files (MATLAB output)
-│   └── UG_per_subject/                # Per-subject uniform gesture .mat files
+├── public/
+│   ├── deep_learning_models.py        # Shared model definitions (EEGNet, EMG_TCN, etc.)
+│   └── emg_loader.py                  # Shared data loading utilities (LOSO, within-subject)
 │
 ├── data_preprocessing/
 │   ├── gesture_splitting_pipeline/    # MATLAB: CSV → per-subject combinedCell .mat
@@ -38,40 +37,38 @@ putEMG prime/
 │   │   ├── prime_split_raw_files_in_blocks_2.m
 │   │   ├── prime_organize_action_blocks_in_gesture_3.m
 │   │   └── prime_uniformize_gestures_4.m
-│   ├── preprocessing.py               # Python: bandpass, resample, z-score normalize, combine
-│   ├── feature_extraction.py          # Sliding-window feature extraction (3 output modes)
+│   ├── preprocessing.py               # Bandpass, resample, z-score normalize
+│   ├── feature_extraction.py          # Sliding-window feature extraction
 │   └── driver.ipynb                   # Driver notebook for preprocessing + feature extraction
 │
-├── baseline_models/
-│   ├── deep_learning_approach/        # Format 4 — raw signal end-to-end CNN/TCN
-│   │   ├── model/
-│   │   │   ├── model.ipynb            # Training & evaluation
-│   │   │   ├── models.py              # EEGNet, ShallowConvNet, DeepConvNet, CNN_LSTM, EMG_TCN
-│   │   │   ├── emg_datahandler.py     # Data loading, splitting, train/eval utilities
-│   │   │   └── weights/
-│   │   │       └── EMG_TCN_best.pt    # Best checkpoint — 93.57% test accuracy
-│   │   └── README.md
+├── generalizable/
+│   ├── baseline_models/
+│   │   ├── deep_learning_approach/    # Raw signal end-to-end CNN/TCN (LOSO)
+│   │   │   ├── model/
+│   │   │   │   ├── model.ipynb        # Training & evaluation
+│   │   │   │   └── weights/
+│   │   │   └── README.md
+│   │   │
+│   │   └── feature_based_approach/    # Temporal feature sequences → LSTM/GRU/Transformer
+│   │       ├── model/
+│   │       │   └── model.ipynb        # Training & evaluation
+│   │       └── README.md
 │   │
-│   ├── format1_flat_rep/              # Format 1 — all windows concatenated per rep → (4992,)
-│   │   └── README.md
+│   ├── efficient_model/               # Efficient model (channel-reduced)
+│   │   └── deep_learning_approach/
+│   │       └── model/
+│   │           ├── deep_learning_models.py
+│   │           ├── model.ipynb
+│   │           └── weights/
 │   │
-│   ├── format2_flat_window/           # Format 2 — one sample per window → (192,), real-time capable
-│   │   ├── model/
-│   │   │   └── model.ipynb            # SVM / XGBoost / MLP training
-│   │   └── README.md
-│   │
-│   └── format3_sequence/              # Format 3 — temporal sequence per rep → (26, 192)
-│       ├── model/
-│       │   ├── model.ipynb            # LSTM / GRU / Transformer training
-│       │   └── handler.py             # Data loading utilities for sequence format
-│       └── README.md
+│   └── clustering/                    # Channel reduction (24 → 8 channels)
+│       ├── clustering.ipynb
+│       ├── clustering_features.ipynb
+│       └── clustering_raw.ipynb
 │
-├── clustering/
-│   └── clustering.ipynb               # K-Means channel clustering (PCA → k=8, work in progress)
-│
-├── feature_approach_plan.txt          # Specification of all 4 formats
-├── claudeAnalysis.txt                 # Full project analysis and improvement roadmap
-└── claudeReport.txt                   # High-level project overview
+└── within_subject/                    # Within-subject 3-fold CV (matches putEMG ~90% benchmark)
+    └── deep_learning_approach/
+        └── model/model.ipynb
 ```
 
 ---
@@ -90,49 +87,32 @@ Raw CSVs  (data/cvs_data_per_subject/)
 [Python]  data_preprocessing/driver.ipynb  →  preprocessing.py
    Bandpass 20–500 Hz → resample to 1500 samples → z-score normalize per channel
    │
-   ├─── FORMAT 4: Deep Learning (raw signal) ───────────────────────────────────
+   ├─── Deep Learning ───────────────────────────────────────────────────────────
+   │    generalizable/baseline_models/deep_learning_approach/model/model.ipynb
+   │    Input: (batch, 1, 24, 1500) — Best: EMG_TCN at 93.57%
    │
-   ▼
-baseline_models/deep_learning_approach/model/model.ipynb
-   Train EEGNet / ShallowConvNet / DeepConvNet / CNN_LSTM / EMG_TCN
-   Input: (batch, 1, 24, 1500) — Best: EMG_TCN at 93.57%
-   │
-   ├─── FORMATS 1–3: Feature Approach ──────────────────────────────────────────
-   │
-   ▼
-data_preprocessing/feature_extraction.py
-   Sliding window (size=250, shift=50) → 8 features × 24 channels = 192-dim per window
-   │
-   ├── mode="flat_rep"      → (4992,) per rep  → baseline_models/format1_flat_rep/
-   ├── mode="flat_window"   → (192,)  per window → baseline_models/format2_flat_window/   [real-time]
-   └── mode="sequence"      → (26, 192) per rep  → baseline_models/format3_sequence/
+   └─── Feature-Based ───────────────────────────────────────────────────────────
+        data_preprocessing/feature_extraction.py
+        Sliding window (size=250, shift=50) → 8 features × 24 channels = 192-dim per window
+        mode="sequence" → (26, 192) per rep
+        generalizable/baseline_models/feature_based_approach/model/model.ipynb
+        Models: LSTM, GRU, Transformer
 ```
 
 ---
 
-## Format Summary
+## Results
 
-| Format | Sample shape     | Dataset size (per subject) | Real-time? | Models                         |
-|--------|------------------|-----------------------------|------------|--------------------------------|
-| 1      | `(4992,)`        | 280 reps                    | No         | SVM, XGBoost, MLP              |
-| 2      | `(192,)`         | 7280 windows                | **Yes**    | SVM, XGBoost, MLP, 2D CNN      |
-| 3      | `(26, 192)`      | 280 reps                    | No         | LSTM, GRU, Transformer, TCN    |
-| 4      | `(1, 24, 1500)`  | 280 reps                    | No         | EEGNet, TCN, CNN-LSTM          |
+| Model                  | Setting                  | Test Accuracy        |
+|------------------------|--------------------------|----------------------|
+| EMG_TCN                | pooled 5-subj (no holdout) | 93.57% *(optimistic)* |
+| **EMG_TCN**            | **LOSO (15/44 folds)**   | **77.07% ± 13.28%**  |
+| EEGNet                 | LOSO (1 fold, subj 12)   | 86.07%               |
+| putEMG paper (SVM+RMS) | within-subject           | ~90%                 |
 
----
+> **Note:** The pooled 93.57% is optimistic — test subjects were seen during training. The LOSO result (77.07%) is the honest cross-subject estimate. High variance (±13.28%) across subjects suggests subject-adaptive fine-tuning may be needed.
 
-## Results (5 subjects, deep learning)
-
-| Model                  | Test Accuracy |
-|------------------------|---------------|
-| **EMG_TCN**            | **93.57%**    |
-| EEGNet                 | 86.43%        |
-| ShallowConvNet         | 81.07%        |
-| DeepConvNet            | 59.64%        |
-| CNN_LSTM               | 51.43%        |
-| putEMG paper (SVM+RMS) | ~90%          |
-
-Feature approach (Formats 1–3): training in progress — no results yet.
+Feature-based approach (LSTM/GRU/Transformer): training not yet run.
 
 ---
 
@@ -150,20 +130,14 @@ Open and run `data_preprocessing/driver.ipynb`.
 ### 3. Feature Extraction
 ```python
 from feature_extraction import batch_extract_features
-
-batch_extract_features(mode="flat_window")   # Format 2 — one sample per window
-batch_extract_features(mode="flat_rep")      # Format 1 — full rep as one flat vector
-batch_extract_features(mode="sequence")      # Format 3 — temporal sequence per rep
+batch_extract_features(mode="sequence")   # (26, 192) per rep → feature_based_approach
 ```
 
-### 4. Deep Learning (Format 4)
-Open and run `baseline_models/deep_learning_approach/model/model.ipynb`.  
-See `baseline_models/deep_learning_approach/README.md` for details.
+### 4. Deep Learning
+Open and run `generalizable/baseline_models/deep_learning_approach/model/model.ipynb`.
 
 ### 5. Feature-Based Models
-- **Format 1:** `baseline_models/format1_flat_rep/` — see README.md
-- **Format 2:** `baseline_models/format2_flat_window/model/model.ipynb`
-- **Format 3:** `baseline_models/format3_sequence/model/model.ipynb`
+Open and run `generalizable/baseline_models/feature_based_approach/model/model.ipynb`.
 
 ---
 
