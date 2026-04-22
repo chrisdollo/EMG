@@ -44,10 +44,10 @@
       </div>
     </div>
     <div class="phase-row">
-      <div class="ph-num">Phase 2 <span class="badge bd-prog" style="margin-left:4px">Active</span></div>
+      <div class="ph-num">Phase 2 <span class="badge bd-done" style="margin-left:4px">Done</span></div>
       <div class="ph-body">
         <div class="ph-title">Cross-Subject Generalization (LOSO) &nbsp;<span style="font-size:0.74rem;color:var(--text3);font-weight:400">generalizable/baseline_models/</span></div>
-        <div class="ph-desc">LOSO complete: EMG_TCN 80.76% ± 12.38% (44/44 folds). EEGNet &amp; ShallowConvNet pending full LOSO runs.</div>
+        <div class="ph-desc">All 3 models — full 44/44 LOSO: EMG_TCN 80.76% ± 12.38% · EEGNet 77.23% ± 12.05% · ShallowConvNet 73.38% ± 11.94%. Feature-based training pending.</div>
       </div>
     </div>
     <div class="phase-row">
@@ -308,42 +308,49 @@
 <div class="slide">
   <div class="slide-header">
     <h2>Phase 2 — Cross-Subject Generalization (LOSO)</h2>
-    <span class="phase">Complete · EMG_TCN 44/44 Folds · generalizable/baseline_models/</span>
+    <span class="phase">Complete · All 3 Models · 44/44 Folds · generalizable/baseline_models/</span>
   </div>
   <div class="col2">
     <div>
       <div class="stat-row" style="grid-template-columns:1fr 1fr 1fr; margin-bottom:14px">
-        <div class="stat-box"><div class="v green">80.76%</div><div class="l">EMG_TCN Mean (44 folds)</div></div>
-        <div class="stat-box"><div class="v yellow">±12.38%</div><div class="l">Std Dev</div></div>
-        <div class="stat-box"><div class="v blue">86.07%</div><div class="l">EEGNet (1 fold, subj 12)</div></div>
+        <div class="stat-box"><div class="v green">80.76%</div><div class="l">EMG_TCN · 44/44 folds</div></div>
+        <div class="stat-box"><div class="v blue">77.23%</div><div class="l">EEGNet · 44/44 folds</div></div>
+        <div class="stat-box"><div class="v yellow">73.38%</div><div class="l">ShallowConvNet · 44/44 folds</div></div>
       </div>
       <div class="card">
-        <div class="card-title">Results — April 2026</div>
+        <div class="card-title">LOSO Results — April 2026 · 44 Subjects</div>
         <table>
-          <thead><tr><th>Model</th><th>Setting</th><th>Accuracy</th></tr></thead>
+          <thead><tr><th>Model</th><th>Mean Acc</th><th>Std</th><th>Folds</th></tr></thead>
           <tbody>
-            <tr><td class="dim">EMG_TCN</td><td class="dim">Early pooled 5-subj run ⚠</td><td class="dim">93.57% — not LOSO</td></tr>
-            <tr><td class="em">EMG_TCN</td><td class="em">LOSO · 44/44 folds ✓</td><td class="hi">80.76% ± 12.38%</td></tr>
-            <tr><td>EEGNet</td><td>LOSO · 1 fold (subj 12)</td><td class="em">86.07%</td></tr>
-            <tr><td>ShallowConvNet</td><td>LOSO · not yet run</td><td class="dim">—</td></tr>
-            <tr><td class="dim">Feature-based</td><td class="dim">Not yet run</td><td class="dim">—</td></tr>
-            <tr><td class="dim">Random baseline</td><td class="dim">7 classes</td><td class="dim">14.29%</td></tr>
+            <tr><td class="em">EMG_TCN</td><td class="hi">80.76%</td><td>±12.38%</td><td class="hi">44 / 44 ✓</td></tr>
+            <tr><td class="em">EEGNet</td><td class="em">77.23%</td><td>±12.05%</td><td class="hi">44 / 44 ✓</td></tr>
+            <tr><td class="em">ShallowConvNet</td><td class="em">73.38%</td><td>±11.94%</td><td class="hi">44 / 44 ✓</td></tr>
+            <tr><td class="dim">Feature-based</td><td class="dim">—</td><td class="dim">—</td><td class="dim">Not yet run</td></tr>
+            <tr><td class="dim">Random baseline</td><td class="dim">14.29%</td><td class="dim">—</td><td class="dim">7 classes</td></tr>
           </tbody>
         </table>
       </div>
     </div>
     <div>
-      <div class="note warn" style="margin-bottom:12px">
-        <strong>On the 93.57% figure:</strong> That result was from an early notebook run using a pooled random split on subjects 03–07 only — test subjects were seen during training. It is not a LOSO result and should not be compared to the 80.76% LOSO mean.
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">Per-Model Extremes</div>
+        <table>
+          <thead><tr><th>Model</th><th>Best fold</th><th>Worst fold</th></tr></thead>
+          <tbody>
+            <tr><td class="em">EMG_TCN</td><td class="hi">99.29% (Subj 14 &amp; 48)</td><td class="lo">53.93% (Subj 06)</td></tr>
+            <tr><td class="em">EEGNet</td><td class="hi">98.21% (Subj 27)</td><td class="lo">48.57% (Subj 06)</td></tr>
+            <tr><td class="em">ShallowConvNet</td><td class="hi">95.00% (Subj 27)</td><td class="lo">37.50% (Subj 17)</td></tr>
+          </tbody>
+        </table>
       </div>
       <div class="card">
         <div class="card-title">Key Observations</div>
         <ul class="bl">
-          <li>80.76% is <strong>66.5 points above random</strong> (14.29%) — genuine cross-subject learning across all 44 subjects</li>
-          <li><strong>High variance (±12.38%)</strong>: results range from 53.93% to 99.29% — transfer is highly uneven across individuals</li>
-          <li>Validation accuracy is consistently 91–96% across all folds; the gap to test accuracy reflects subject-specific signal patterns that do not transfer</li>
-          <li>12 subjects score above 90%; 7 subjects score below 70%</li>
-          <li>Next: run EEGNet and ShallowConvNet full LOSO for cross-model comparison</li>
+          <li>EMG_TCN leads all models — dilated temporal convolutions generalise best cross-subject</li>
+          <li><strong>~3.5 pp gap</strong> between each model; consistent ranking across the full fold set</li>
+          <li><strong>High variance (~±12 pp)</strong> is shared by all three — not model-specific. Subject anatomy and signal quality drive it</li>
+          <li>Subj 06 is the hardest for EMG_TCN and EEGNet; Subj 27 is easiest for all three</li>
+          <li>No model reaches the ~90% within-subject benchmark — subject-adaptive fine-tuning is the most promising next step</li>
         </ul>
       </div>
     </div>
@@ -354,17 +361,17 @@
 <!-- ═══════════════════════════════════════════════ SLIDE 8 — PER-SUBJECT -->
 <div class="slide">
   <div class="slide-header">
-    <h2>Phase 2 — Per-Subject LOSO Breakdown (EMG_TCN)</h2>
+    <h2>Phase 2 — Per-Subject Breakdown (Best Model: EMG_TCN)</h2>
     <span class="phase">44 / 44 Folds Complete · April 2026</span>
   </div>
   <div class="col2-wide">
     <div class="card" style="overflow-y:auto; max-height:calc(100vh - 180px)">
-      <div class="card-title">Test Accuracy by Held-Out Subject</div>
+      <div class="card-title">EMG_TCN — Test Accuracy by Held-Out Subject</div>
       <div class="bars" id="barChart"></div>
     </div>
     <div>
       <div class="card" style="margin-bottom:12px">
-        <div class="card-title">Statistics — 44 Folds</div>
+        <div class="card-title">EMG_TCN — 44 Fold Statistics</div>
         <table>
           <thead><tr><th>Metric</th><th>Value</th></tr></thead>
           <tbody>
@@ -378,10 +385,21 @@
           </tbody>
         </table>
       </div>
-      <div class="note warn" style="margin-bottom:10px">
-        <strong>High variance persists across all 44 subjects.</strong> Validation is near-uniform (~93%), but test accuracy spans 46 points. Subject-adaptive fine-tuning is likely needed to close this gap.
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">Model Comparison — All 3 Models</div>
+        <table>
+          <thead><tr><th>Model</th><th>Mean</th><th>Std</th></tr></thead>
+          <tbody>
+            <tr><td class="em">EMG_TCN</td><td class="hi">80.76%</td><td>±12.38%</td></tr>
+            <tr><td class="em">EEGNet</td><td class="em">77.23%</td><td>±12.05%</td></tr>
+            <tr><td class="em">ShallowConvNet</td><td>73.38%</td><td>±11.94%</td></tr>
+          </tbody>
+        </table>
       </div>
-      <div class="note">
+      <div class="note warn">
+        <strong>High variance is shared by all models (~±12 pp).</strong> Validation is near-uniform, but test accuracy spans 46+ points per model. Subject-adaptive fine-tuning is the most promising path forward.
+      </div>
+      <div class="note" style="margin-top:8px">
         Colour key: <span style="color:var(--green);font-weight:600">green</span> ≥ 86% &nbsp;·&nbsp;
         <span style="color:var(--accent);font-weight:600">blue</span> 71–85% &nbsp;·&nbsp;
         <span style="color:var(--red);font-weight:600">red</span> &lt; 71%
@@ -502,18 +520,19 @@
         <div class="card-title">Accomplished</div>
         <ul class="bl">
           <li><strong>Within-subject DL validated</strong> — EMG_TCN 97.47%, ShallowConvNet 93.50%, EEGNet 91.05% across 38 subjects (all exceed published SVM ~90%)</li>
-          <li><strong>Full LOSO infrastructure</strong> — automated seeded fold generation, per-fold checkpointing, result logging</li>
-          <li><strong>EMG_TCN LOSO complete</strong> — 80.76% ± 12.38% over all 44/44 folds; full cross-subject baseline established</li>
-          <li><strong>Dual pipeline ready</strong> — deep learning and feature-based paths both built and operational</li>
-          <li>Two significant bugs found and fixed (dtype and dead loop in LOSO training loop)</li>
+          <li><strong>Full LOSO infrastructure</strong> — single notebook, MODEL_TYPE variable, per-model weight subfolders, per-model result logs, skip/resume logic</li>
+          <li><strong>EMG_TCN LOSO complete</strong> — 80.76% ± 12.38% · all 44/44 folds</li>
+          <li><strong>EEGNet LOSO complete</strong> — 77.23% ± 12.05% · all 44/44 folds</li>
+          <li><strong>ShallowConvNet LOSO complete</strong> — 73.38% ± 11.94% · all 44/44 folds</li>
+          <li><strong>libemg feature extraction</strong> — public/feature_extraction.py · 50 feature groups × 24 ch = 3192-dim/window · skip logic included</li>
         </ul>
       </div>
       <div class="card">
         <div class="card-title">The Core Challenge</div>
         <ul class="bl">
-          <li>17-point accuracy gap: within-subject <strong>97.47%</strong> → LOSO <strong>80.76%</strong></li>
-          <li>±12.38% std over 44 folds — some subjects near-perfect (99%), others near-chance (54%)</li>
-          <li>High validation (~94%) but variable test accuracy — model overfits to the training population</li>
+          <li>17-point accuracy gap: within-subject <strong>97.47%</strong> → LOSO <strong>80.76%</strong> (best model)</li>
+          <li>±12 pp std shared by all models — subject-specific signal variation is the bottleneck, not architecture</li>
+          <li>High validation (~91–94%) but variable test accuracy — model sees consistent training populations but cannot predict unseen subjects</li>
         </ul>
       </div>
     </div>
@@ -521,18 +540,20 @@
       <div class="card accent-left" style="margin-bottom:14px">
         <div class="card-title">Immediate Next Steps</div>
         <ul class="bl">
-          <li><span class="badge bd-done">Done</span> &nbsp; <strong>EMG_TCN LOSO 44/44 folds</strong> — 80.76% ± 12.38%</li>
-          <li><span class="badge bd-prog">Unblocked</span> &nbsp; Run <strong>EEGNet and ShallowConvNet full LOSO</strong> for cross-model comparison</li>
-          <li><span class="badge bd-pend">Pending</span> &nbsp; Feature extraction for <strong>18 remaining subjects</strong> → unblock feature-based training</li>
-          <li><span class="badge bd-pend">Pending</span> &nbsp; Within-subject feature-based evaluation (LSTM, GRU, Transformer)</li>
+          <li><span class="badge bd-done">Done</span> &nbsp; EMG_TCN LOSO — 80.76% ± 12.38% · 44/44 folds</li>
+          <li><span class="badge bd-done">Done</span> &nbsp; EEGNet LOSO — 77.23% ± 12.05% · 44/44 folds</li>
+          <li><span class="badge bd-done">Done</span> &nbsp; ShallowConvNet LOSO — 73.38% ± 11.94% · 44/44 folds</li>
+          <li><span class="badge bd-done">Done</span> &nbsp; libemg feature extraction pipeline (public/feature_extraction.py)</li>
+          <li><span class="badge bd-prog">Unblocked</span> &nbsp; <strong>Per-class accuracy analysis</strong> — load saved checkpoints, forward-pass only, no retraining</li>
+          <li><span class="badge bd-prog">Unblocked</span> &nbsp; <strong>Feature-based LOSO</strong> — train LSTM / GRU / Transformer on (26, 3192) sequences</li>
         </ul>
       </div>
       <div class="card">
         <div class="card-title">Highest-Leverage Experiment</div>
         <ul class="bl">
-          <li><strong>Subject-adaptive fine-tuning</strong> — given the 20-point LOSO gap, fine-tuning the final model layers on a small calibration set from the test subject is the single most impactful next experiment</li>
+          <li><strong>Subject-adaptive fine-tuning</strong> — the 17-point within-subject → LOSO gap is driven by subject variability, not model capacity. Fine-tuning the last layers on a small calibration set from the test subject is the single most impactful next experiment</li>
           <li>Train on N−1 subjects → fine-tune on a few reps from the test subject</li>
-          <li>Expected to close most of the 97.47% → 77.07% gap</li>
+          <li>Expected to close most of the 97.47% → 80.76% gap</li>
         </ul>
       </div>
     </div>

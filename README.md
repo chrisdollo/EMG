@@ -2,8 +2,8 @@
 
 Two parallel pipelines for hand gesture recognition from surface electromyography (sEMG) signals, built on the [putEMG dataset](https://biolab.put.poznan.pl/putemg-dataset/):
 
-- **Deep learning approach** — CNN/TCN models on raw time-series (best: EMG_TCN, 93.57%)
-- **Feature-based approach** — hand-crafted features (8 × 24 channels = 192-dim) fed into LSTM/GRU/Transformer sequence models
+- **Deep learning approach** — CNN/TCN models on raw time-series
+- **Feature-based approach** — 50 libemg features (3192-dim) or 8 hand-crafted features (192-dim) fed into sequence models
 
 ---
 
@@ -27,8 +27,9 @@ The **putEMG** dataset ([Kaczmarek et al., 2019](https://www.mdpi.com/1424-8220/
 ```
 putEMG prime/
 ├── public/
-│   ├── deep_learning_models.py        # Shared model definitions (EEGNet, EMG_TCN, etc.)
-│   └── emg_loader.py                  # Shared data loading utilities (LOSO, within-subject)
+│   ├── deep_learning_models.py        # Shared model definitions (EEGNet, EMG_TCN, ShallowConvNet, …)
+│   ├── emg_loader.py                  # Shared data loading utilities (LOSO, within-subject splits)
+│   └── feature_extraction.py          # libemg feature extraction (50 features → 3192-dim/window)
 │
 ├── data_preprocessing/
 │   ├── gesture_splitting_pipeline/    # MATLAB: CSV → per-subject combinedCell .mat
@@ -38,33 +39,25 @@ putEMG prime/
 │   │   ├── prime_organize_action_blocks_in_gesture_3.m
 │   │   └── prime_uniformize_gestures_4.m
 │   ├── preprocessing.py               # Bandpass, resample, z-score normalize
-│   ├── feature_extraction.py          # Sliding-window feature extraction
+│   ├── feature_extraction.py          # Legacy 8-feature sliding-window extraction
 │   └── driver.ipynb                   # Driver notebook for preprocessing + feature extraction
 │
 ├── generalizable/
 │   ├── baseline_models/
-│   │   ├── deep_learning_approach/    # Raw signal end-to-end CNN/TCN (LOSO)
-│   │   │   ├── model/
-│   │   │   │   ├── model.ipynb        # Training & evaluation
-│   │   │   │   └── weights/
+│   │   ├── deep_learning_approach/    # Raw signal end-to-end CNN/TCN (LOSO) — COMPLETE
+│   │   │   ├── model.ipynb
+│   │   │   ├── summary.txt
+│   │   │   ├── weights/EMG_TCN/       # 44 per-subject checkpoints
+│   │   │   ├── weights/EEGNet/
+│   │   │   ├── weights/ShallowConvNet/
 │   │   │   └── README.md
 │   │   │
-│   │   └── feature_based_approach/    # Temporal feature sequences → LSTM/GRU/Transformer
-│   │       ├── model/
-│   │       │   └── model.ipynb        # Training & evaluation
+│   │   └── feature_based_approach/    # Temporal feature sequences → sequence models
+│   │       ├── model.ipynb
 │   │       └── README.md
 │   │
-│   ├── efficient_model/               # Efficient model (channel-reduced)
-│   │   └── deep_learning_approach/
-│   │       └── model/
-│   │           ├── deep_learning_models.py
-│   │           ├── model.ipynb
-│   │           └── weights/
-│   │
-│   └── clustering/                    # Channel reduction (24 → 8 channels)
-│       ├── clustering.ipynb
-│       ├── clustering_features.ipynb
-│       └── clustering_raw.ipynb
+│   ├── efficient_model/               # Channel-reduced model (24 → 8 channels)
+│   └── clustering/                    # Channel reduction via agglomerative clustering
 │
 └── within_subject/                    # Within-subject 3-fold CV (matches putEMG ~90% benchmark)
     └── deep_learning_approach/
@@ -81,38 +74,49 @@ Raw CSVs  (data/cvs_data_per_subject/)
    ▼
 [MATLAB]  data_preprocessing/gesture_splitting_pipeline/put_emg_driver.m
    CSV → extract 24 channels → detect gesture blocks → combinedCell (N_reps × 7)
-   Output: data/NUG_per_subject/   and   data/UG_per_subject/
+   Output: data/UG_per_subject/
    │
    ▼
 [Python]  data_preprocessing/driver.ipynb  →  preprocessing.py
    Bandpass 20–500 Hz → resample to 1500 samples → z-score normalize per channel
    │
-   ├─── Deep Learning ───────────────────────────────────────────────────────────
-   │    generalizable/baseline_models/deep_learning_approach/model/model.ipynb
-   │    Input: (batch, 1, 24, 1500) — Best: EMG_TCN at 93.57%
+   ├─── Deep Learning ─────────────────────────────────────────────────────────
+   │    public/emg_loader.py  →  load_all_subjects() + make_loso_train_val_test()
+   │    Input: (batch, 1, 24, 1500)
+   │    generalizable/baseline_models/deep_learning_approach/model.ipynb
    │
-   └─── Feature-Based ───────────────────────────────────────────────────────────
-        data_preprocessing/feature_extraction.py
-        Sliding window (size=250, shift=50) → 8 features × 24 channels = 192-dim per window
-        mode="sequence" → (26, 192) per rep
-        generalizable/baseline_models/feature_based_approach/model/model.ipynb
-        Models: LSTM, GRU, Transformer
+   └─── Feature-Based ─────────────────────────────────────────────────────────
+        public/feature_extraction.py  →  batch_extract()
+        Sliding window (size=250, shift=50) → 50 feature groups × 24 channels = 3192-dim/window
+        mode="sequence" → (26, 3192) per rep
+        generalizable/baseline_models/feature_based_approach/model.ipynb
 ```
 
 ---
 
 ## Results
 
-| Model                  | Setting                  | Test Accuracy        |
-|------------------------|--------------------------|----------------------|
-| EMG_TCN                | pooled 5-subj (no holdout) | 93.57% *(optimistic)* |
-| **EMG_TCN**            | **LOSO (15/44 folds)**   | **77.07% ± 13.28%**  |
-| EEGNet                 | LOSO (1 fold, subj 12)   | 86.07%               |
-| putEMG paper (SVM+RMS) | within-subject           | ~90%                 |
+### Cross-Subject (LOSO) — 44/44 folds complete
 
-> **Note:** The pooled 93.57% is optimistic — test subjects were seen during training. The LOSO result (77.07%) is the honest cross-subject estimate. High variance (±13.28%) across subjects suggests subject-adaptive fine-tuning may be needed.
+| Model          | Mean Acc   | Std      | Notes                          |
+|----------------|------------|----------|--------------------------------|
+| **EMG_TCN**    | **80.76%** | ±12.38%  | Best cross-subject model       |
+| EEGNet         | 77.23%     | ±12.05%  |                                |
+| ShallowConvNet | 73.38%     | ±11.94%  |                                |
+| Feature-based  | —          | —        | Training not yet run           |
 
-Feature-based approach (LSTM/GRU/Transformer): training not yet run.
+### Within-Subject (3-fold CV) — 38 subjects
+
+| Model          | Mean Acc   | Std     |
+|----------------|------------|---------|
+| EMG_TCN        | 97.47%     | ±2.78%  |
+| ShallowConvNet | 93.50%     | ±4.09%  |
+| EEGNet         | 91.05%     | ±5.56%  |
+| putEMG paper (SVM+RMS) | ~90% | —   |
+
+> All three deep learning models exceed the published ~90% within-subject benchmark.
+> Cross-subject accuracy is significantly lower (~73–81%), with high variance (±12 pp),
+> indicating that subject-adaptive methods will likely be needed for deployment.
 
 ---
 
@@ -127,17 +131,22 @@ run('data_preprocessing/gesture_splitting_pipeline/put_emg_driver.m')
 ### 2. Python Signal Preprocessing
 Open and run `data_preprocessing/driver.ipynb`.
 
-### 3. Feature Extraction
+### 3. Feature Extraction (feature-based approach)
 ```python
-from feature_extraction import batch_extract_features
-batch_extract_features(mode="sequence")   # (26, 192) per rep → feature_based_approach
+from public.emg_loader import load_all_subjects
+from public.feature_extraction import batch_extract
+
+subjects = load_all_subjects('/Volumes/KRIS/data/UG_per_subject')
+batch_extract(subjects, output_dir='/path/to/features', mode='sequence')
+# Saves features_subject_SS_sequence.npz per subject; skips existing files
 ```
 
-### 4. Deep Learning
-Open and run `generalizable/baseline_models/deep_learning_approach/model/model.ipynb`.
+### 4. Deep Learning (LOSO)
+Open `generalizable/baseline_models/deep_learning_approach/model.ipynb`.  
+Set `MODEL_TYPE = 'EMG_TCN'` (or `'EEGNet'` / `'ShallowConvNet'`) and run.
 
 ### 5. Feature-Based Models
-Open and run `generalizable/baseline_models/feature_based_approach/model/model.ipynb`.
+Open `generalizable/baseline_models/feature_based_approach/model.ipynb`.
 
 ---
 
@@ -148,7 +157,7 @@ MATLAB R2019b or later (`containers.Map`, `table`, `interp1`)
 
 ### Python
 ```bash
-pip install scipy numpy matplotlib scikit-learn torch xgboost
+pip install scipy numpy matplotlib scikit-learn torch libemg
 ```
 
 ---

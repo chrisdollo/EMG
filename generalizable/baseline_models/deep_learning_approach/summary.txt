@@ -1,0 +1,93 @@
+putEMG — Deep Learning Baseline (LOSO) — Summary
+==================================================
+Last updated : 2026-04-22
+Status       : COMPLETE — all 44 folds run for all 3 models
+
+
+WHAT WAS DONE
+-------------
+Trained three CNN/TCN architectures on the putEMG dataset using full
+Leave-One-Subject-Out (LOSO) cross-validation across all 44 subjects.
+
+Each fold:
+  - Test    : 1 held-out subject (never seen during training)
+  - Train   : 90% of remaining 43 subjects' data (stratified by class)
+  - Val     : 10% of remaining 43 subjects' data (early stopping only)
+
+Best-epoch weights are saved per fold and checkpointing allows resuming
+mid-run. All three models ran to completion (44/44 folds each).
+
+Training configuration:
+  Optimizer   : Adam (lr=1e-3)
+  LR schedule : ReduceLROnPlateau (factor=0.5, patience=5, min_lr=1e-6)
+  Early stop  : patience=5, min_delta=0.002
+  Max epochs  : 20
+  Dropout     : 0.1
+  Batch size  : 16
+  Input shape : (1, 24, 1500) — 24 sEMG channels, 1500 samples per rep
+
+
+RESULTS — LOSO (44/44 folds, all subjects)
+-------------------------------------------
+
+Model           Mean Acc    Std      Best Fold          Worst Fold
+-----------     --------    -----    -----------------  ------------------
+EMG_TCN         80.76%      12.38%   Subj 14 & 48 (99.29%)  Subj 06 (53.93%)
+EEGNet          77.23%      12.05%   Subj 27 (98.21%)       Subj 06 (48.57%)
+ShallowConvNet  73.38%      11.94%   Subj 27 (95.00%)       Subj 17 (37.50%)
+
+Ranking: EMG_TCN > EEGNet > ShallowConvNet
+Margin:  EMG_TCN leads EEGNet by 3.53 pp; EEGNet leads ShallowConvNet by 3.85 pp
+
+
+PER-MODEL DETAIL
+----------------
+
+EMG_TCN (spatial mixing + 4 dilated TCN residual blocks)
+  Mean: 80.76%  Std: 12.38%  |  Val mean: 93.57%
+  Files: weights/EMG_TCN/EMG_TCN_SS.pt  |  results_log_EMG_TCN.txt
+
+EEGNet (depthwise + separable CNN — standard BCI baseline)
+  Mean: 77.23%  Std: 12.05%  |  Val mean: 88.24%
+  Files: weights/EEGNet/EEGNet_SS.pt    |  results_log_EEGNet.txt
+
+ShallowConvNet (temporal conv + square/log band-power pooling)
+  Mean: 73.38%  Std: 11.94%  |  Val mean: 82.25%
+  Files: weights/ShallowConvNet/ShallowConvNet_SS.pt  |  results_log_ShallowConvNet.txt
+
+
+KEY OBSERVATIONS
+----------------
+
+1. EMG_TCN is the best generalizing architecture across subjects.
+   Dilated temporal convolutions appear well-suited to cross-subject sEMG.
+
+2. All three models show high variance (~12 pp std). Subject-specific
+   signal characteristics drive large differences: some subjects are
+   classified near-perfectly (>98%) while others are near-chance (<50%).
+
+3. Subject 06 is the hardest for both EMG_TCN and EEGNet. Subject 27
+   is the easiest, scoring 97.50% (EMG_TCN), 98.21% (EEGNet), 95.00%
+   (ShallowConvNet).
+
+4. Val accuracy is consistently higher than test accuracy (~93% vs ~80%
+   for EMG_TCN). The gap reflects how poorly inter-subject variation
+   is captured by the training pool — the model sees consistent val
+   performance but cannot predict the new subject's style.
+
+5. No model reaches the ~90% within-subject benchmark (putEMG paper
+   SVM+RMS), confirming that cross-subject generalization is fundamentally
+   harder. Subject-adaptive fine-tuning is the most promising next step.
+
+
+FILES IN THIS FOLDER
+--------------------
+model.ipynb                    — Training notebook (set MODEL_TYPE to switch models)
+weights/EMG_TCN/               — 44 per-subject checkpoints for EMG_TCN
+weights/EEGNet/                — 44 per-subject checkpoints for EEGNet
+weights/ShallowConvNet/        — 44 per-subject checkpoints for ShallowConvNet
+results_log_EMG_TCN.txt        — Per-subject results table, EMG_TCN
+results_log_EEGNet.txt         — Per-subject results table, EEGNet
+results_log_ShallowConvNet.txt — Per-subject results table, ShallowConvNet
+summary.txt                    — This file
+README.md                      — Folder documentation

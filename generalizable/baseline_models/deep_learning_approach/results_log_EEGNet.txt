@@ -1,0 +1,50 @@
+putEMG — EEGNet LOSO Results
+====================================================================
+Subject                       Test Acc    Val Acc   Epoch  Date
+--------------------------------------------------------------------
+emg_gestures_03_U.mat           82.50%     87.29%       9  2026-04-21
+emg_gestures_04_U.mat           68.93%     89.45%      18  2026-04-21
+emg_gestures_05_U.mat           73.93%     90.37%      20  2026-04-21
+emg_gestures_06_U.mat           48.57%     88.87%      17  2026-04-21
+emg_gestures_07_U.mat           65.71%     87.29%       7  2026-04-21
+emg_gestures_08_U.mat           81.79%     89.53%      19  2026-04-21
+emg_gestures_09_U.mat           86.43%     87.79%      10  2026-04-21
+emg_gestures_10_U.mat           92.14%     88.21%      19  2026-04-21
+emg_gestures_11_U.mat           80.71%     88.12%      18  2026-04-21
+emg_gestures_12_U.mat           84.29%     88.95%      20  2026-04-21
+emg_gestures_13_U.mat           77.50%     89.45%      18  2026-04-21
+emg_gestures_14_U.mat           93.57%     87.71%      20  2026-04-21
+emg_gestures_15_U.mat           81.07%     87.62%       9  2026-04-21
+emg_gestures_16_U.mat           66.07%     89.53%      19  2026-04-21
+emg_gestures_17_U.mat           55.00%     89.87%      15  2026-04-21
+emg_gestures_18_U.mat           73.57%     88.21%      14  2026-04-21
+emg_gestures_19_U.mat           64.64%     87.62%      16  2026-04-21
+emg_gestures_20_U.mat           69.29%     87.96%      10  2026-04-21
+emg_gestures_22_U.mat           65.36%     87.79%      12  2026-04-21
+emg_gestures_23_U.mat           83.57%     88.37%      17  2026-04-21
+emg_gestures_24_U.mat           88.57%     87.54%       8  2026-04-21
+emg_gestures_25_U.mat           62.50%     86.30%      12  2026-04-21
+emg_gestures_26_U.mat           55.71%     90.28%      20  2026-04-21
+emg_gestures_27_U.mat           98.21%     89.62%      15  2026-04-21
+emg_gestures_29_U.mat           91.79%     86.21%      14  2026-04-21
+emg_gestures_30_U.mat           65.00%     89.04%      15  2026-04-21
+emg_gestures_31_U.mat           66.79%     86.05%      13  2026-04-21
+emg_gestures_33_U.mat           92.50%     89.20%      20  2026-04-21
+emg_gestures_34_U.mat           81.43%     88.29%      18  2026-04-21
+emg_gestures_35_U.mat           83.93%     86.54%       7  2026-04-21
+emg_gestures_36_U.mat           75.00%     87.29%      12  2026-04-21
+emg_gestures_38_U.mat           74.64%     87.71%      19  2026-04-21
+emg_gestures_39_U.mat           80.00%     89.45%      20  2026-04-21
+emg_gestures_42_U.mat           77.86%     86.88%      14  2026-04-21
+emg_gestures_43_U.mat           83.21%     86.54%      12  2026-04-21
+emg_gestures_45_U.mat           82.50%     88.70%      19  2026-04-21
+emg_gestures_46_U.mat           81.43%     88.79%      18  2026-04-21
+emg_gestures_47_U.mat           54.29%     87.79%      11  2026-04-21
+emg_gestures_48_U.mat           93.57%     86.88%      11  2026-04-21
+emg_gestures_49_U.mat           93.57%     88.79%      16  2026-04-21
+emg_gestures_50_U.mat           90.71%     89.04%      17  2026-04-21
+emg_gestures_51_U.mat           69.29%     87.38%      12  2026-04-21
+emg_gestures_53_U.mat           71.07%     87.04%      10  2026-04-21
+emg_gestures_54_U.mat           90.00%     88.70%      20  2026-04-21
+====================================================================
+Mean: 77.23%  ±  12.05%  (44 / 44 folds complete)

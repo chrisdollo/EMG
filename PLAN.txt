@@ -1,5 +1,6 @@
 putEMG Prime — Project Plan
 ============================
+Last updated: 2026-04-22
 
 Goal: Build a generalizable, channel-efficient sEMG gesture recognition system using
 the putEMG dataset. The project progresses from within-subject baselines to full
@@ -29,20 +30,16 @@ the harder cross-subject problem.
 
   b) Feature-based approach (sliding-window hand-crafted features)
      Folder  : within_subject/feature_based_approach/  [to be created]
-     - Start with 8 features per channel (MAV, RMS, WL, ZC, SSC, VAR, MNF, MDF)
+     - Use 50 libemg features per channel × 24 channels = 3192-dim per window
        Window size: 250 samples, stride: 50 samples → 26 windows per rep
-       Feature vector per window: 8 × 24 = 192-dim
-     - Later: expand to 50 features per channel (600 total candidates per window)
-       and apply feature selection to identify the best 8–12 features
-     - NOTE: find a research paper to justify the choice of 8–12 features
-       (expected basis: saturation of accuracy gain, computational cost,
-        or an established EMG feature selection benchmark)
+       Feature vector per rep (sequence mode): (26, 3192)
+     - Apply feature selection to identify the most discriminative features
      - Status: PENDING
 
 --------------------------------------------------------------------------------
 Phase 2 — Cross-Subject Generalization  (LOSO Baseline)
 Folder : generalizable/baseline_models/
-Status : IN PROGRESS
+Status : Deep learning DONE | Feature-based PENDING
 --------------------------------------------------------------------------------
 
 Train models that generalize to completely unseen subjects using Leave-One-Subject-Out
@@ -50,25 +47,26 @@ Train models that generalize to completely unseen subjects using Leave-One-Subje
 
   Deep learning approach:
      Folder  : generalizable/baseline_models/deep_learning_approach/
-     Models  : EMG_TCN, EEGNet, ShallowConvNet (same three as Phase 1)
-               Additional architectures may be explored as the baseline matures.
+     Status  : COMPLETE — all 44 folds run for all 3 models
+     Models  : EMG_TCN, EEGNet, ShallowConvNet
+
+     Results (LOSO, 44/44 folds, all subjects):
+       EMG_TCN        80.76% ± 12.38%   ← best
+       EEGNet         77.23% ± 12.05%
+       ShallowConvNet 73.38% ± 11.94%
+
+     Infrastructure:
+       - Checkpointing: per-subject .pt files; completed folds skipped on resume
+       - MODEL_TYPE variable in model.ipynb to switch between models
+       - Per-model weight subfolders: weights/EMG_TCN/, weights/EEGNet/, weights/ShallowConvNet/
+       - Per-model result logs: results_log_EMG_TCN.txt, etc.
 
   Feature-based approach:
      Folder  : generalizable/baseline_models/feature_based_approach/
-     Input   : (26, 192) sequence per rep — same feature extraction as Phase 1b
+     Input   : (26, 3192) sequence per rep — 50 libemg feature groups × 24 channels
+     Extractor: public/feature_extraction.py (batch_extract with skip logic)
      Models  : LSTM, GRU, Transformer
-
-  Steps:
-  1. Train on 43 subjects, test on 1 held-out subject, repeated for all 44 folds.
-  2. Report mean accuracy ± std across all folds.
-  3. The model trained on all 44 subjects becomes the final cross-subject baseline.
-  4. Both deep learning and feature-based approaches are evaluated.
-
-  Current results:
-    EMG_TCN LOSO        — 77.07% ± 13.28%  (15/44 folds complete)
-    EEGNet  LOSO        — 86.07%            (1 fold, subject 12)
-    ShallowConvNet LOSO — not yet run
-    Feature-based       — PENDING
+     Status  : Feature extraction added; training not yet run
 
 --------------------------------------------------------------------------------
 Phase 3 — Channel Clustering
@@ -81,9 +79,7 @@ electrode count to 8 representative channels without a significant loss of accur
 
   - Use agglomerative clustering to group the 24 channels into 8 clusters,
     selecting one representative channel per cluster.
-  - Clustering is performed independently for both the deep learning approach
-    (using learned feature representations) and the feature-based approach
-    (using hand-crafted features), and the two sets of results are compared.
+  - Clustering performed independently for deep learning and feature-based approaches.
 
 --------------------------------------------------------------------------------
 Phase 4 — Anatomical Validation of Clusters
@@ -91,15 +87,13 @@ Folder : generalizable/clustering/  [anatomical analysis added here]
 Status : PENDING
 --------------------------------------------------------------------------------
 
-Cross-reference the Phase 3 clusters with the electrode-to-muscle-group mapping
+Cross-reference Phase 3 clusters with the electrode-to-muscle-group mapping
 described in the original putEMG paper.
 
   - Determine whether the most correlated channels belong to the same anatomical
-    muscle group (as would be expected from physiology).
+    muscle group.
   - Produce a diagram showing the forearm electrode layout with selected channels
-    and their corresponding muscle groups annotated.
-  - Compare whether the deep learning and feature-based approaches select
-    overlapping or divergent sets of channels.
+    and muscle groups annotated.
 
 --------------------------------------------------------------------------------
 Phase 5 — Reduced-Channel Model
@@ -108,22 +102,31 @@ Status : PENDING
 --------------------------------------------------------------------------------
 
 Retrain the cross-subject baseline models using only the 8 channels identified in
-Phase 3, and measure how much accuracy is lost relative to the 24-channel baseline.
+Phase 3, and measure accuracy loss vs the 24-channel baseline.
 
   a) Deep learning version
      Folder  : generalizable/efficient_model/deep_learning_approach/
-     - Same EMG_TCN / EEGNet / ShallowConvNet architectures on (1, 8, 1500) input
+     - Same EMG_TCN / EEGNet / ShallowConvNet on (1, 8, 1500) input
 
   b) Feature-based version
      Folder  : generalizable/efficient_model/feature_based_approach/  [to be created]
-     - Same pipeline on 8 channels; if using best 8–12 features: 64–96-dim per window
-       vs 192-dim for the 24-channel baseline
+     - Same pipeline on 8 channels; feature-based input shrinks to (26, ~530) per rep
 
   Target: match or closely approach the 24-channel cross-subject baseline
           accuracy with one-third the electrode count.
 
 --------------------------------------------------------------------------------
-Phase 6 — Real-Time Data Collection  [FUTURE]
+Phase 6 — Per-Subject Analysis
+Status : PENDING (analysis only — no retraining needed)
+--------------------------------------------------------------------------------
+
+Compute per-class accuracy for each saved checkpoint without retraining.
+  - Load each .pt file, build test loader for that subject, run forward pass
+  - Build a subjects × classes accuracy matrix for each model
+  - Identify which gestures are hardest to generalize across subjects
+
+--------------------------------------------------------------------------------
+Phase 7 — Real-Time Data Collection  [FUTURE]
 Folder : tbd/
 Status : NOT STARTED
 --------------------------------------------------------------------------------
