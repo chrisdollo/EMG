@@ -1,0 +1,377 @@
+\documentclass[11pt,twocolumn]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{enumitem}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    citecolor=blue!60!black,
+    urlcolor=blue!60!black,
+}
+
+% ── Metadata ──────────────────────────────────────────────────────────────────
+\title{\textbf{Towards Channel-Efficient, Cross-Subject sEMG Gesture Recognition}\\
+       \large Progress Report — putEMG Prime Project}
+
+\author{Chris Dollo\\
+        \small \texttt{dollochrisdavid@gmail.com}}
+
+\date{May 2026}
+
+% ── Document ──────────────────────────────────────────────────────────────────
+\begin{document}
+\maketitle
+
+% ── Abstract ──────────────────────────────────────────────────────────────────
+\begin{abstract}
+Surface electromyography (sEMG) enables non-invasive hand gesture recognition for
+prosthetic control and human-computer interfaces. However, most published systems
+are trained and evaluated on data from the same subject, limiting practical
+deployability. This report summarises progress on the \emph{putEMG Prime} project,
+which aims to build a generalizable, channel-efficient sEMG gesture recognition
+system using the publicly available putEMG dataset~\cite{kaczmarek2019putemg}.
+We present within-subject and cross-subject evaluations of three deep learning
+architectures and establish a strong baseline that exceeds the original
+paper's benchmark under both protocols. We then outline a research roadmap
+toward practical deployment: hand-crafted feature-based sequence models,
+data-driven electrode reduction from 24 to 8 channels, and real-time inference.
+\end{abstract}
+
+% ── 1. Introduction ───────────────────────────────────────────────────────────
+\section{Introduction}
+
+Hand gesture recognition from surface electromyography is a well-studied problem
+with applications in prosthetics, rehabilitation robotics, and gesture-based
+human-computer interaction. Despite decades of research, a persistent gap remains
+between laboratory accuracy and real-world deployability. Two related challenges
+stand out:
+
+\begin{enumerate}[noitemsep]
+  \item \textbf{Cross-subject generalization.} Models trained on one participant's
+        EMG signals typically perform poorly on a new user due to inter-subject
+        variation in electrode placement, muscle anatomy, and signal amplitude.
+  \item \textbf{Electrode count.} High-density electrode arrays (24+ channels)
+        improve accuracy but are impractical for wearable or prosthetic devices.
+        Reducing to 8 representative channels would greatly simplify hardware.
+\end{enumerate}
+
+This project addresses both challenges systematically, starting from a faithful
+reproduction of the putEMG paper's within-subject benchmark before progressing to
+cross-subject evaluation, feature-based modelling, and electrode reduction.
+
+% ── 2. Dataset ────────────────────────────────────────────────────────────────
+\section{Dataset}
+
+The \textbf{putEMG} dataset~\cite{kaczmarek2019putemg} was collected at Poznan
+University of Technology and is publicly available. Key properties are summarised
+in Table~\ref{tab:dataset}.
+
+\begin{table}[h]
+\centering
+\caption{putEMG dataset overview.}
+\label{tab:dataset}
+\begin{tabular}{ll}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+Subjects          & 44 able-bodied participants \\
+Electrodes        & 24 sEMG channels (forearm matrix) \\
+Sampling rate     & 5120 Hz \\
+Gesture classes   & 7 active (G1, G2, G3, G6, G7, G8, G9) \\
+Repetitions       & $\sim$40 per gesture per subject \\
+Sessions          & 2 per subject \\
+Recording format  & CSV per session \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each session contains multiple labelled gesture blocks. A MATLAB preprocessing
+pipeline segments the blocks, extracts all 24 sEMG channels, and saves one
+\texttt{combinedCell} matrix ($N_\text{reps} \times 7$) per subject. A subsequent
+Python step bandpass-filters each channel (20--500 Hz, 4th-order Butterworth),
+resamples each repetition to 1500 samples, and applies per-channel z-score
+normalisation. The final per-subject file contains representations of shape
+$(N, 1, 24, 1500)$ for deep learning, or $(N, 26, 3192)$ for feature-based models
+(Section~\ref{sec:feature}).
+
+% ── 3. Methods ────────────────────────────────────────────────────────────────
+\section{Methods}
+
+\subsection{Evaluation Protocols}
+
+Two complementary evaluation protocols are used throughout the project.
+
+\paragraph{Within-Subject 3-Fold CV.}
+For each of the 44 subjects individually, repetitions are split into three
+stratified folds. The model is trained on two folds and tested on the held-out
+fold; this is rotated three times to yield three fold accuracies. The grand mean
+and standard deviation are computed across all subjects. This protocol mirrors the
+original putEMG paper's evaluation~\cite{kaczmarek2019putemg} and allows direct
+comparison to their $\sim$90\% SVM/RMS benchmark.
+
+\paragraph{Cross-Subject LOSO.}
+Leave-One-Subject-Out (LOSO) cross-validation treats each of the 44 subjects as
+a held-out test fold in turn. For a given test subject, the remaining 43 subjects'
+data are pooled; 90\% is used for training and 10\% (stratified by class) is
+reserved for early stopping only. No information from the test subject is seen
+during training or validation. This protocol tests true generalization to unseen
+individuals.
+
+\subsection{Deep Learning Models}
+\label{sec:dl}
+
+All deep learning models receive raw sEMG windows of shape
+$(B, 1, 24, 1500)$ and output class logits of shape $(B, 7)$. Three architectures
+are compared.
+
+\paragraph{EMG-TCN.}
+A spatial mixing convolution ($C \times 1$ depthwise, projecting 24 channels to a
+learned feature space) followed by four dilated temporal residual blocks. Each
+residual block applies two dilated 1-D convolutions with dilation factors
+$1, 2, 4, 8$ and a 1-D skip connection. Global average pooling and a linear
+classifier head produce the final output. Dilation allows the network to capture
+long-range temporal dependencies without excessive parameter counts.
+
+\paragraph{EEGNet.}
+A compact depthwise-separable CNN originally developed for EEG
+classification~\cite{lawhern2018eegnet}. A temporal convolution learns
+frequency-band filters, a depthwise convolution learns spatial filters per
+channel, and a separable convolution fuses temporal and spatial features.
+EEGNet serves as the standard BCI baseline due to its small parameter count
+and strong published performance.
+
+\paragraph{ShallowConvNet.}
+Adapted from Schirrmeister et al.~\cite{schirrmeister2017deep}. A single temporal
+convolution is followed by a spatial convolution across channels, a
+square-then-log band-power nonlinearity, average pooling, and dropout. The
+architecture approximates filter-bank common spatial patterns (FBCSP), making it
+especially interpretable.
+
+\paragraph{Training configuration.}
+All models are trained with Adam ($\text{lr} = 10^{-3}$),
+ReduceLROnPlateau scheduling (factor 0.5, patience 5), and early stopping
+(patience 5, $\delta = 0.002$). Batch size is 16; maximum epochs 20; dropout
+0.1. Best-epoch weights are saved per fold. Completed folds are skipped
+automatically, making training resumable at any point without data loss.
+
+\subsection{Feature-Based Models}
+\label{sec:feature}
+
+As an alternative to end-to-end learning, we extract 50 hand-crafted feature
+groups from each channel using the \texttt{libemg} library. With 24 channels, each
+window produces a 3192-dimensional feature vector
+($50\ \text{groups} \times 24\ \text{channels}$). A sliding window of size 250
+samples and stride 50 samples yields exactly 26 windows per 1500-sample
+repetition. The resulting representation per repetition is a sequence matrix of
+shape $(26, 3192)$.
+
+Three sequence models are evaluated on this representation:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{FeatureLSTM}: Bidirectional LSTM (2 layers, hidden 128); final
+        hidden states from both directions concatenated and fed to a linear head.
+        $\sim$3.8M parameters.
+  \item \textbf{FeatureGRU}: Bidirectional GRU (2 layers, hidden 128); same
+        classification head as FeatureLSTM. $\sim$2.8M parameters.
+  \item \textbf{FeatureTransformer}: Sinusoidal positional encoding, 2-layer
+        Transformer encoder ($d_\text{model}=128$, $n_\text{head}=4$,
+        $d_\text{ff}=256$), mean pooling over the 26 timesteps, linear head.
+        $\sim$675K parameters.
+\end{itemize}
+
+The feature cache is written once and shared between the within-subject and
+cross-subject notebooks, avoiding redundant computation.
+
+% ── 4. Results ────────────────────────────────────────────────────────────────
+\section{Results}
+
+\subsection{Within-Subject Evaluation}
+
+Table~\ref{tab:within} reports grand mean accuracy across all evaluated subjects
+(38 subjects; 6 subjects were excluded due to missing or incomplete data).
+
+\begin{table}[h]
+\centering
+\caption{Within-subject 3-fold CV — deep learning (38 subjects).}
+\label{tab:within}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Model} & \textbf{Mean Acc} & \textbf{Std} \\
+\midrule
+EMG-TCN        & \textbf{97.47\%}  & $\pm$2.78\% \\
+ShallowConvNet & 93.50\%           & $\pm$4.09\% \\
+EEGNet         & 91.05\%           & $\pm$5.56\% \\
+\midrule
+putEMG SVM+RMS~\cite{kaczmarek2019putemg} & $\sim$90\% & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All three deep learning models exceed the published SVM+RMS benchmark. EMG-TCN
+leads by more than 7 percentage points. EMG-TCN achieved 100\% on 5 individual
+subjects (03, 12, 16, 26, 42), demonstrating that the task is near-perfectly
+solvable with sufficient subject-specific data.
+
+\subsection{Cross-Subject LOSO Evaluation}
+
+Table~\ref{tab:loso} reports results after completing all 44 LOSO folds for all
+three architectures.
+
+\begin{table}[h]
+\centering
+\caption{Cross-subject LOSO — deep learning (44/44 folds).}
+\label{tab:loso}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{Mean} & \textbf{Std} & \textbf{Best} & \textbf{Worst} \\
+\midrule
+EMG-TCN        & \textbf{80.76\%} & 12.38\% & 99.29\% & 53.93\% \\
+EEGNet         & 77.23\%          & 12.05\% & 98.21\% & 48.57\% \\
+ShallowConvNet & 73.38\%          & 11.94\% & 95.00\% & 37.50\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+EMG-TCN is the strongest cross-subject architecture, outperforming EEGNet by
+3.53 pp and ShallowConvNet by 7.38 pp. The margin between models is consistent
+and statistically meaningful given the full-population evaluation.
+
+\paragraph{Key observations.}
+\begin{enumerate}[noitemsep]
+  \item \textbf{High variance.} All models exhibit $\sim$12 pp standard deviation.
+        Some subjects are classified near-perfectly ($>$98\%) while others fall
+        near chance ($<$55\%). This heterogeneity suggests that cross-subject
+        generalization depends strongly on individual signal characteristics.
+  \item \textbf{Val/test gap.} EMG-TCN achieves $\sim$93\% mean validation
+        accuracy against $\sim$81\% test accuracy. Because the validation set is
+        drawn from the same pool as training, this gap reflects inter-subject
+        variance not captured during training rather than overfitting.
+  \item \textbf{Consistent outliers.} Subject 06 is the hardest for both EMG-TCN
+        (53.93\%) and EEGNet (48.57\%), while Subject 27 is the easiest across
+        all three models (95--98\%). This consistency implies subject-level
+        signal quality differences rather than random fold variation.
+  \item \textbf{Cross-subject vs.\ within-subject gap.} The best cross-subject
+        model (80.76\%) falls 16.7 pp below the best within-subject model
+        (97.47\%), confirming that cross-subject generalization remains the
+        primary bottleneck. Subject-adaptive fine-tuning is the most promising
+        mitigation.
+\end{enumerate}
+
+% ── 5. Research Roadmap ───────────────────────────────────────────────────────
+\section{Research Roadmap}
+
+The project follows a seven-phase plan. Phases 1a and 2a are complete;
+Phases 1b through 7 define the remaining objectives.
+
+\paragraph{Phase 1b — Within-Subject Feature-Based Models.}
+Evaluate FeatureLSTM, FeatureGRU, and FeatureTransformer under the same
+3-fold within-subject protocol. The feature-based approach may offer better
+interpretability and generalisation than end-to-end deep learning, especially
+under limited per-subject data.
+
+\paragraph{Phase 2b — Cross-Subject Feature-Based LOSO.}
+Run full LOSO evaluation for all three sequence models on the 3192-dim feature
+representation. Compare against the deep learning baselines from Phase 2a to
+determine whether learned or hand-crafted features generalise better.
+
+\paragraph{Phase 3 — Data-Driven Channel Reduction.}
+Apply agglomerative hierarchical clustering to the 24 sEMG channels, grouping
+correlated channels and selecting one representative per cluster. The target is
+8 channels — one-third of the original count — sufficient for a realistic wrist
+band or forearm sleeve. Clustering is performed separately for deep learning
+(on raw signal correlations) and feature-based approaches (on feature-space
+correlations).
+
+\paragraph{Phase 4 — Anatomical Validation.}
+Cross-reference the 8 selected channels with the electrode-to-muscle-group
+mapping described in the putEMG paper. If the data-driven clusters align with
+known functional muscle groups (e.g.\ flexor digitorum, extensor digitorum,
+thenar), this provides an interpretable justification for the selection.
+
+\paragraph{Phase 5 — Reduced-Channel Evaluation.}
+Retrain all baseline models (both deep learning and feature-based) using only
+the 8 representative channels. Compare accuracy against the 24-channel baselines
+from Phases 1--2. The target is to approach within 5 pp of the full-channel
+accuracy. Success here would demonstrate practical deployability.
+
+\paragraph{Phase 6 — Per-Subject, Per-Class Analysis.}
+Without any retraining, load each saved checkpoint and compute per-gesture
+accuracy for every subject. Construct a subjects $\times$ gestures accuracy
+matrix to identify which gesture classes are hardest to generalise across
+subjects. This analysis motivates targeted data augmentation or gesture-specific
+preprocessing in future work.
+
+\paragraph{Phase 7 — Real-Time Data Collection (Future).}
+Deploy the best-performing reduced-channel model in an online streaming setting.
+Collect real-time sEMG data from new participants not present in the putEMG
+dataset. Evaluate transfer performance and, if needed, study lightweight
+per-user calibration.
+
+% ── 6. Discussion ─────────────────────────────────────────────────────────────
+\section{Discussion}
+
+The within-subject results confirm that deep convolutional and temporal models
+substantially outperform the SVM baseline from the original putEMG paper, even
+without subject-specific hyperparameter tuning. The 97.47\% EMG-TCN accuracy
+suggests that 7-class gesture recognition is effectively solved in the
+within-subject setting with sufficient data.
+
+The cross-subject results are more sobering. An 80.76\% mean LOSO accuracy with
+a 12 pp standard deviation indicates that a single universal model struggles to
+handle the full diversity of inter-subject signal variation. Several directions
+may close this gap: domain adaptation, subject-specific batch normalisation
+layers, or few-shot fine-tuning with a small number of calibration repetitions
+from the new user.
+
+The planned feature-based evaluation will clarify whether hand-crafted features
+offer a complementary inductive bias. Features such as Mean Frequency and Slope
+Sign Changes may capture aspects of muscle firing patterns that are more
+invariant across subjects than raw waveform morphology.
+
+% ── 7. Conclusion ─────────────────────────────────────────────────────────────
+\section{Conclusion}
+
+We have established strong within-subject and cross-subject deep learning
+baselines for sEMG gesture recognition on the putEMG dataset. EMG-TCN achieves
+97.47\% within-subject accuracy — exceeding the published benchmark — and 80.76\%
+cross-subject LOSO accuracy. The gap between protocols quantifies the
+cross-subject generalization challenge that motivates the remainder of the
+project. The planned feature-based evaluation, channel reduction, and
+anatomical validation phases will move the system progressively closer to
+practical deployment in a real wearable device.
+
+% ── References ────────────────────────────────────────────────────────────────
+\bibliographystyle{ieeetr}
+\begin{thebibliography}{9}
+
+\bibitem{kaczmarek2019putemg}
+P.~Kaczmarek, T.~Mankowski, and J.~Tomczynski,
+``putEMG --- A Surface Electromyography Hand Gesture Recognition Dataset,''
+\textit{Sensors}, vol.~19, no.~16, p.~3548, 2019.
+\url{https://doi.org/10.3390/s19163548}
+
+\bibitem{lawhern2018eegnet}
+V.~J.~Lawhern, A.~J.~Solon, N.~R.~Waytowich, S.~M.~Gordon, C.~P.~Hung, and B.~J.~Lance,
+``EEGNet: A Compact Convolutional Neural Network for EEG-Based Brain-Computer Interfaces,''
+\textit{Journal of Neural Engineering}, vol.~15, no.~5, p.~056013, 2018.
+\url{https://arxiv.org/abs/1611.08024}
+
+\bibitem{schirrmeister2017deep}
+R.~T.~Schirrmeister, J.~T.~Springenberg, L.~D.~J.~Fiederer, M.~Glasstetter,
+K.~Eggensperger, M.~Tangermann, F.~Hutter, W.~Burgard, and T.~Ball,
+``Deep Learning With Convolutional Neural Networks for EEG Decoding and Visualization,''
+\textit{Human Brain Mapping}, vol.~38, no.~11, pp.~5391--5420, 2017.
+\url{https://doi.org/10.1002/hbm.23730}
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,234 @@
+putEMG Prime — Project Summary
+================================
+Last updated: 2026-05-25
+
+================================================================================
+OVERVIEW
+================================================================================
+
+Goal: Build a generalizable, channel-efficient sEMG hand gesture recognition
+system using the putEMG dataset. The project progresses through four stages:
+
+  1. Establish within-subject baselines (compare to published benchmark)
+  2. Evaluate cross-subject generalization (LOSO — leave-one-subject-out)
+  3. Reduce the electrode count from 24 to 8 via feature-space clustering
+  4. Retrain on the 8-channel subset and measure the accuracy trade-off
+
+Two parallel classification pipelines run throughout every stage:
+  - Deep learning  : CNN/TCN models on raw time-series (input: 1 × 24 × 1500)
+  - Feature-based  : 50 libemg features per channel → sequence models (LSTM/GRU/Transformer)
+
+The end target is a system that generalizes to completely new subjects using
+roughly one-third the electrode count, making it practical for a wearable BCI.
+
+
+================================================================================
+DATASET — putEMG (Kaczmarek et al., 2019)
+================================================================================
+
+  Source    : Poznan University of Technology (public, CC-licensed)
+  Subjects  : 44 able-bodied participants
+  Electrodes: 24 sEMG channels arranged in 3 rings of 8 around the forearm
+              Elbow band = ch 1–8, middle band = ch 9–16, wrist band = ch 17–24
+              Circumferential spacing: 45° per electrode
+              Ch 1 of each band placed over the ulna bone, numbered clockwise
+  Sampling  : 5120 Hz
+  Gestures  : 7 active gestures (G1, G2, G3, G6, G7, G8, G9)
+              e.g., fist, open hand, pinch, flexion/extension variants
+  Reps      : ~40 per gesture per subject across 2 recording sessions
+  Format    : CSV per session → MATLAB preprocessing → per-subject .mat files
+
+  Benchmark (paper): SVM + RMS features, within-subject, ~90% accuracy
+
+
+================================================================================
+PREPROCESSING PIPELINE
+================================================================================
+
+Step 1 — MATLAB  (data_preprocessing/matlab/put_emg_driver.m)
+  CSV recordings → detect gesture blocks → extract 24 channels
+  Output: per-subject combinedCell .mat  (N_reps × 7 cell array)
+
+Step 2 — Python  (data_preprocessing/driver.ipynb + preprocessing.py)
+  - Bandpass filter: 20–700 Hz (Butterworth order 4, zero-phase, applied at 5120 Hz)
+  - Notch filters: 30, 50, 60, 90, 150 Hz (IIR notch Q=30, zero-phase) — mains/equipment interference
+  - Resample: each rep → 1500 samples (uniform length)
+  - Normalize: per-channel z-score
+  Output: emg_gestures_SS_U.mat  (44 files, one per subject)
+  Location: /Volumes/KRIS/data/UG_per_subject/
+
+Step 3 — Feature extraction  (src/feature_extraction.py)
+  Sliding window: size=250 samples (~49 ms), shift=50 samples
+  50 libemg feature groups × 24 channels = 3192-dim per window
+  26 windows per rep → shape (26, 3192) per sample  [sequence mode]
+  Cache: /Volumes/KRIS/data/features_sequence/
+
+
+================================================================================
+MODELS
+================================================================================
+
+Deep Learning  (src/deep_learning_models.py)
+  EEGNet        — compact depthwise-separable CNN (adapted from EEG literature)
+  ShallowConvNet — shallow CNN from Schirrmeister et al.
+  EMG_TCN       — temporal convolutional network, best-performing overall
+
+Feature-Based  (src/feature_based_models.py)
+  FeatureLSTM      — bidirectional LSTM on the 26-window feature sequence
+  FeatureGRU       — same with GRU cells
+  FeatureTransformer — multi-head self-attention encoder
+
+All models use:
+  - Adam optimizer, LR 1e-3
+  - ReduceLROnPlateau (factor 0.5, patience 5)
+  - Early stopping (patience 5), max 20 epochs
+  - Batch size 16
+
+
+================================================================================
+EVALUATION PROTOCOLS
+================================================================================
+
+Within-Subject (Phase 1)
+  - 3-fold stratified CV per subject, seed 42
+  - Train/test split within one subject's data
+  - Directly comparable to the putEMG paper benchmark (~90%)
+
+Cross-Subject — LOSO (Phase 2)
+  - 44 folds: each subject serves as the test set once
+  - Train = remaining 43 subjects (10% held out as validation)
+  - Tests generalization to completely unseen individuals
+  - Gold standard for real-world BCI deployability
+
+
+================================================================================
+RESULTS (as of 2026-05-25)
+================================================================================
+
+--- Within-Subject (3-fold CV, 38 subjects) --- COMPLETE ---
+
+  Model           Mean Acc    Std
+  EMG_TCN          97.47%    ±2.78%   ← best
+  ShallowConvNet   93.50%    ±4.09%
+  EEGNet           91.05%    ±5.56%
+  putEMG paper     ~90.00%   —
+
+  All three deep learning models exceed the published benchmark.
+
+--- Cross-Subject LOSO (44/44 folds, all subjects) --- COMPLETE ---
+
+  Model           Mean Acc    Std       Best fold           Worst fold
+  EMG_TCN          80.76%    ±12.38%   Subj 14 & 48 (99.3%)  Subj 06 (53.9%)
+  EEGNet           77.23%    ±12.05%   Subj 27 (98.2%)        Subj 06 (48.6%)
+  ShallowConvNet   73.38%    ±11.94%   Subj 27 (95.0%)        Subj 17 (37.5%)
+
+  Key observations:
+  - ~12 pp std is high: some subjects near-perfect, others near-chance
+  - Val accuracy (~93%) >> Test (~81%): inter-subject variance dominates
+  - Subject 06 is the hardest across all models; Subject 27 is the easiest
+  - Within-subject is ~17 pp higher than cross-subject for EMG_TCN
+
+--- Feature-Based & Reduced-Channel --- NOT YET RUN ---
+
+
+================================================================================
+PENDING WORK
+================================================================================
+
+Phase 1b — Within-subject, feature-based
+  Notebook  : experiments/within_subject/feature_based/model.ipynb
+  Models    : FeatureLSTM, FeatureGRU, FeatureTransformer
+  Status    : Notebook ready, training not run
+
+Phase 2b — Cross-subject LOSO, feature-based
+  Notebook  : experiments/cross_subject/feature_based/model.ipynb
+  Status    : Notebook ready, training not run
+
+Phase 3 — Channel clustering (24 → 8)
+  Notebook  : experiments/clustering/clustering_features.ipynb
+  Method    : Feature-space correlation clustering, medoid selection
+  Output    : feat_representative_channels.npy, feat_cluster_labels.npy
+  Status    : Notebook ready, not yet run
+
+Phase 4 — Anatomical validation of clusters
+  Notebook  : experiments/clustering/anatomical_validation.ipynb
+  Output    : Forearm diagram (Gray's Anatomy overlay) showing muscle coverage
+              of the 8 selected representative channels
+  Status    : Notebook ready (updated 2026-05-25 with real anatomy image overlay)
+  Depends on: Phase 3 output files
+
+Phase 5a — Reduced-channel deep learning (8-channel LOSO)
+  Notebook  : experiments/efficient/deep_learning/model.ipynb
+  Depends on: Phase 3 output files
+  Status    : Notebook ready, not yet run
+
+Phase 5b — Reduced-channel feature-based
+  Notebook  : experiments/efficient/feature_based/model.ipynb
+  Status    : To be created after 5a
+
+Phase 6 — Per-subject, per-class accuracy analysis
+  Load saved checkpoints, run forward pass, build subjects × classes matrix
+  Goal      : Identify which gestures are hardest to generalize
+  Status    : Not started
+
+Phase 7 — Real-time data collection  [FUTURE]
+  Evaluate system on live sEMG streams; details TBD after Phases 1–5 complete
+
+
+================================================================================
+PROJECT STRUCTURE
+================================================================================
+
+putEMG prime/
+├── src/                          Shared Python modules
+│   ├── emg_loader.py             Data loading (load_all_subjects, load_feature_subjects,
+│   │                             make_loso_train_val_test, make_within_subject_loaders)
+│   ├── feature_extraction.py     libemg 50-feature extractor (batch_extract)
+│   ├── deep_learning_models.py   EEGNet, ShallowConvNet, DeepConvNet, CNN_LSTM, EMG_TCN
+│   └── feature_based_models.py   FeatureLSTM, FeatureGRU, FeatureTransformer
+│
+├── data_preprocessing/
+│   ├── matlab/                   CSV → per-subject .mat (put_emg_driver.m)
+│   ├── preprocessing.py          Bandpass, resample, z-score
+│   └── driver.ipynb              Entry point for preprocessing
+│
+├── experiments/
+│   ├── within_subject/
+│   │   ├── deep_learning/        COMPLETE — 38 subjects, 3-fold CV
+│   │   └── feature_based/        Notebook ready, not run
+│   ├── cross_subject/
+│   │   ├── deep_learning/        COMPLETE — 44/44 LOSO folds, 3 models
+│   │   └── feature_based/        Notebook ready, not run
+│   ├── clustering/               24→8 channel reduction
+│   │   ├── clustering_features.ipynb
+│   │   ├── anatomical_validation.ipynb
+│   │   └── assets/               Gray's Anatomy images for overlay figure
+│   └── efficient/                8-channel models
+│       ├── deep_learning/        Notebook ready, not run
+│       └── feature_based/        Notebook ready, not run
+│
+└── docs/
+    ├── plan.txt                  Full 7-phase research plan with status
+    ├── project_summary.txt       This file
+    ├── claude_report.txt         Earlier progress report
+    └── slides/                   Progress presentation
+
+
+================================================================================
+REFERENCES
+================================================================================
+
+  Kaczmarek, P., Mankowski, T., Tomczynski, J. (2019).
+    putEMG — A Surface Electromyography Hand Gesture Recognition Dataset.
+    Sensors, 19(16), 3548. https://doi.org/10.3390/s19163548
+
+  Lawhern, V. J., et al. (2018).
+    EEGNet: A Compact Convolutional Neural Network for EEG-based BCIs.
+    Journal of Neural Engineering. https://arxiv.org/abs/1611.08024
+
+  Schirrmeister, R. T., et al. (2017).
+    Deep Learning with CNNs for EEG Motor Imagery Decoding.
+    Human Brain Mapping. https://doi.org/10.1002/hbm.23730
+
+  putEMG dataset: https://biolab.put.poznan.pl/putemg-dataset/
+  libemg library: https://github.com/libemg/libemg

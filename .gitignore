@@ -1,3 +1,20 @@
 data/
+csv_data/
 venv/
 .claude/
+__pycache__/
+*.pyc
+.DS_Store
+.ipynb_checkpoints/
+
+# Model weights
+*.pt
+*.pth
+*.h5
+experiments/*/deep_learning/weights/
+experiments/*/feature_based/weights/
+
+# Data files
+*.mat
+*.pkl
+*.npy
