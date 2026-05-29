@@ -1,6 +1,6 @@
 putEMG Prime — Project Summary
 ================================
-Last updated: 2026-05-25
+Last updated: 2026-05-28
 
 ================================================================================
 OVERVIEW
@@ -50,18 +50,19 @@ Step 1 — MATLAB  (data_preprocessing/matlab/put_emg_driver.m)
   Output: per-subject combinedCell .mat  (N_reps × 7 cell array)
 
 Step 2 — Python  (data_preprocessing/driver.ipynb + preprocessing.py)
+  Runs in Google Colab; data and code stored on Google Drive.
   - Bandpass filter: 20–700 Hz (Butterworth order 4, zero-phase, applied at 5120 Hz)
   - Notch filters: 30, 50, 60, 90, 150 Hz (IIR notch Q=30, zero-phase) — mains/equipment interference
   - Resample: each rep → 1500 samples (uniform length)
   - Normalize: per-channel z-score
   Output: emg_gestures_SS_U.mat  (44 files, one per subject)
-  Location: /Volumes/KRIS/data/UG_per_subject/
 
-Step 3 — Feature extraction  (src/feature_extraction.py)
-  Sliding window: size=250 samples (~49 ms), shift=50 samples
+Step 3 — Feature extraction  (data_preprocessing/feature_extraction.py)
+  Runs in Google Colab as part of the driver; data on Google Drive.
+  Sliding window: size=250 samples (~49 ms), shift=50 samples → 26 windows/rep
   50 libemg feature groups × 24 channels = 3192-dim per window
-  26 windows per rep → shape (26, 3192) per sample  [sequence mode]
-  Cache: /Volumes/KRIS/data/features_sequence/
+  All windows concatenated per rep → flat_rep format: (N_reps, 26 × 3192)
+  Note: experiments/*/feature_based/ notebooks use src/feature_extraction.py (sequence mode)
 
 
 ================================================================================
@@ -74,9 +75,11 @@ Deep Learning  (src/deep_learning_models.py)
   EMG_TCN       — temporal convolutional network, best-performing overall
 
 Feature-Based  (src/feature_based_models.py)
-  FeatureLSTM      — bidirectional LSTM on the 26-window feature sequence
-  FeatureGRU       — same with GRU cells
+  FeatureLSTM        — bidirectional LSTM on the 26-window feature sequence
+  FeatureGRU         — same with GRU cells
   FeatureTransformer — multi-head self-attention encoder
+  Hybrid TCN-BiLSTM  — dilated causal convolutions feed into a bidirectional LSTM;
+                       combines TCN's receptive field efficiency with BiLSTM's sequential context.
 
 All models use:
   - Adam optimizer, LR 1e-3
