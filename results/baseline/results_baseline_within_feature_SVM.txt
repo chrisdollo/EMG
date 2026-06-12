@@ -3,7 +3,7 @@ protocol     = within
 approach     = feature
 model        = SVM
 channels     = 24
-date         = 2026-06-11
+date         = 2026-06-12
 
 subject    val_acc   test_acc   epochs
 ------------------------------------------
@@ -39,9 +39,21 @@ subject    val_acc   test_acc   epochs
 35             N/A     98.85%      N/A
 36             N/A     98.13%      N/A
 38             N/A     98.89%      N/A
+39             N/A     97.03%      N/A
+42             N/A     99.28%      N/A
+43             N/A     97.87%      N/A
+45             N/A     98.55%      N/A
+46             N/A     99.27%      N/A
+47             N/A     99.31%      N/A
+48             N/A     98.53%      N/A
+49             N/A     97.45%      N/A
+50             N/A     97.72%      N/A
+51             N/A     92.41%      N/A
+53             N/A     97.06%      N/A
+54             N/A     97.29%      N/A
 
 mean_val  = N/A
-mean_test = 95.81%  ±  4.47%
+mean_test = 96.31%  ±  4.01%
 best      = 24 (99.64%)
 worst     = 06 (76.62%)
-n         = 32/44
+n         = 44/44
