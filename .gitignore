@@ -6,15 +6,17 @@ __pycache__/
 *.pyc
 .DS_Store
 .ipynb_checkpoints/
+.tmp.drivedownload/
+.tmp.driveupload/
 
-# Model weights
+# Model weights (binary, large — not tracked)
 *.pt
 *.pth
 *.h5
-experiments/*/deep_learning/weights/
-experiments/*/feature_based/weights/
+*.pkl
+weights/
 
 # Data files
 *.mat
-*.pkl
 *.npy
+*.npz

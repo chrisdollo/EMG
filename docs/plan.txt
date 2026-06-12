@@ -1,6 +1,6 @@
 putEMG Prime — Project Plan
 ============================
-Last updated: 2026-05-14
+Last updated: 2026-06-12
 
 Goal: Build a generalizable, channel-efficient sEMG gesture recognition system using
 the putEMG dataset. The project progresses from within-subject baselines to full
@@ -9,121 +9,127 @@ for real BCI use.
 
 --------------------------------------------------------------------------------
 Phase 1 — Within-Subject Classification
-Folder : within_subject/
-Status : Deep learning DONE | Feature-based PENDING
+Entry  : runners.run_within(...) — invoked from baseline.ipynb / scripts/run_baseline.py
+Status : RUNNING (2026-06-12)
 --------------------------------------------------------------------------------
 
 Reproduce and extend the original putEMG paper's within-subject classification
-results using deep learning, establishing an internal benchmark before tackling
-the harder cross-subject problem.
+results, establishing internal benchmarks before tackling the harder cross-subject
+problem.
 
   a) Deep learning approach (raw signals, input shape 1×24×1500)
-     Folder  : within_subject/deep_learning_approach/
-     - 3-fold cross-validation, 38 subjects, seed 42
+     Entry   : runners.run_within(type='deep_learning', ...)
+     Weights : weights/baseline/within_dl/
+     Results : results/baseline/results_baseline_within_DL_{model}.txt
+     - 3-fold cross-validation, 44 subjects, seed 42
      - Models: EMG_TCN, EEGNet, ShallowConvNet
-     - Results (grand mean ± std across subjects):
-         EMG_TCN        97.47% ± 2.78%   ← best
-         ShallowConvNet 93.50% ± 4.09%
-         EEGNet         91.05% ± 5.56%
-     - All three models exceed the published SVM+RMS baseline (~90%)
-     - Status: DONE
+     - Status: RUNNING
 
-  b) Feature-based approach (sliding-window hand-crafted features)
-     Folder  : within_subject/feature_based_approach/  [to be created]
-     - Use 50 libemg features per channel × 24 channels = 3192-dim per window
-       Window size: 250 samples, stride: 50 samples → 26 windows per rep
-       Feature vector per rep (sequence mode): (26, 3192)
-     - Apply feature selection to identify the most discriminative features
-     - Status: PENDING
+  b) Feature-based approach (41 single-scalar libemg features)
+     Entry   : runners.run_within(type='feature_based', ...)
+     Weights : weights/baseline/within_feat/
+     Results : results/baseline/results_baseline_within_feature_{model}.txt
+     - 3-fold cross-validation, 44 subjects, seed 42
+     - Input: 41 features × 24 channels = 984-dim per window, channel-major.
+       26 windows/rep → (N_reps, 26, 984). Folds are rep-level (no leakage).
+     - Models (WITHIN_FEATURE_MODELS):
+         SVM        — RBF kernel, C=50, window-level training, majority vote
+         FeatureMLP — 3-layer MLP on per-window features, majority vote
+     - Status: RUNNING
 
 --------------------------------------------------------------------------------
 Phase 2 — Cross-Subject Generalization  (LOSO Baseline)
-Folder : generalizable/baseline_models/
-Status : Deep learning DONE | Feature-based PENDING
+Entry  : runners.run_cross(...) — invoked from baseline.ipynb / scripts/run_baseline.py
+Status : RUNNING/PENDING (2026-06-12)
 --------------------------------------------------------------------------------
 
 Train models that generalize to completely unseen subjects using Leave-One-Subject-Out
 (LOSO) evaluation — the gold standard for cross-subject generalization.
 
-  Deep learning approach:
-     Folder  : generalizable/baseline_models/deep_learning_approach/
-     Status  : COMPLETE — all 44 folds run for all 3 models
-     Models  : EMG_TCN, EEGNet, ShallowConvNet
+  a) Deep learning approach
+     Entry   : runners.run_cross(type='deep_learning', ...)
+     Weights : weights/baseline/cross_dl/
+     Results : results/baseline/results_baseline_cross_DL_{model}.txt
+     - Models: EMG_TCN, EEGNet, ShallowConvNet
+     - Status: RUNNING
 
-     Results (LOSO, 44/44 folds, all subjects):
-       EMG_TCN        80.76% ± 12.38%   ← best
-       EEGNet         77.23% ± 12.05%
-       ShallowConvNet 73.38% ± 11.94%
-
-     Infrastructure:
-       - Checkpointing: per-subject .pt files; completed folds skipped on resume
-       - MODEL_TYPE variable in model.ipynb to switch between models
-       - Per-model weight subfolders: weights/EMG_TCN/, weights/EEGNet/, weights/ShallowConvNet/
-       - Per-model result logs: results_log_EMG_TCN.txt, etc.
-
-  Feature-based approach:
-     Folder  : generalizable/baseline_models/feature_based_approach/
-     Input   : (26, 3192) sequence per rep — 50 libemg feature groups × 24 channels
-     Extractor: public/feature_extraction.py (batch_extract with skip logic)
-     Models  : LSTM, GRU, Transformer
-     Status  : Feature extraction added; training not yet run
+  b) Feature-based approach
+     Entry   : runners.run_cross(type='feature_based', ...)
+     Weights : weights/baseline/cross_feat/
+     Results : results/baseline/results_baseline_cross_feature_{model}.txt
+     - Input: (26, 984) per rep — 41 features × 24 channels (channel-major)
+     - Models (CROSS_FEATURE_MODELS):
+         SVM_W      — LinearSVC, C=50, window-level training, majority vote
+                      (LinearSVC scales to ~330k windows; RBF SVC intractable at this size)
+         FeatureMLP — 3-layer MLP, window-level training, majority vote
+     - Status: PENDING (starts after Phase 2a completes)
 
 --------------------------------------------------------------------------------
 Phase 3 — Channel Clustering
-Folder : experiments/clustering/
-Status : NOTEBOOKS COMPLETE — not yet run
+Folder : clustering & analysis/
+Status : NOT YET RUN
 --------------------------------------------------------------------------------
 
 24 channels is too many for a practical, wearable BCI. The goal is to reduce the
 electrode count to 8 representative channels without a significant loss of accuracy.
+Only feature-space clustering is used — raw-signal clustering was found to be less
+informative and has been archived.
 
-  clustering_features.ipynb — feature-space correlation (single clustering approach)
-    - 8-feature extraction (MAV, RMS, WL, ZC, SSC, VAR, MNF, MDF) via emg_loader.py
-    - Z-scored per feature, same clustering and medoid approach
-    - Saves: feat_representative_channels.npy, feat_cluster_labels.npy
-    - Includes silhouette sweep and dendrogram visualizations
+  clustering.ipynb — feature-space correlation clustering
+    - Loads all subjects' pre-extracted feature data (N_reps × 26 × 984)
+    - Separates per-channel feature vectors: shape (N_total_windows, 24, 41)
+      (channel-major layout → channel c is columns [c*41 : (c+1)*41], a clean slice)
+    - Computes per-channel mean signature: (24, 41) matrix
+    - Computes 24×24 Pearson correlation matrix between channel signatures
+    - Applies agglomerative hierarchical clustering (Ward linkage) → k=8 clusters
+    - Silhouette sweep over k=4–12 to validate k=8 is reasonable
+    - Selects medoid per cluster (most central channel in feature space)
+    - Visualizations: dendrogram, 24×24 heatmap, forearm ring layout
+    - Saves: feat_representative_channels.npy  (8,) 0-indexed
+             feat_cluster_labels.npy           (24,) cluster assignments
 
 --------------------------------------------------------------------------------
 Phase 4 — Anatomical Validation of Clusters
-Folder : experiments/clustering/  [anatomical analysis added here]
-Status : PENDING
+Folder : clustering & analysis/
+Status : PENDING (depends on Phase 3)
 --------------------------------------------------------------------------------
 
 Cross-reference Phase 3 clusters with the electrode-to-muscle-group mapping
 described in the original putEMG paper.
 
-  - Determine whether the most correlated channels belong to the same anatomical
-    muscle group.
+  - Determine whether correlated channels belong to the same anatomical muscle group
+    (ring position and 45° spacing → forearm muscle coverage)
   - Produce a diagram showing the forearm electrode layout with selected channels
-    and muscle groups annotated.
+    and muscle groups annotated
 
 --------------------------------------------------------------------------------
 Phase 5 — Reduced-Channel Model
-Folder : experiments/efficient/
-Status : Deep learning NOTEBOOK COMPLETE — not yet run | Feature-based PENDING
+Notebook : efficient.ipynb
+Status : NOT YET RUN (depends on Phase 3)
 --------------------------------------------------------------------------------
 
 Retrain the cross-subject baseline models using only the 8 channels identified in
 Phase 3, and measure accuracy loss vs the 24-channel baseline.
 
   a) Deep learning version
-     Folder  : experiments/efficient/deep_learning/
-     Notebook: model.ipynb — COMPLETE
-     - Loads feat_representative_channels.npy from experiments/clustering/
+     Notebook: efficient.ipynb
+     - Loads feat_representative_channels.npy from clustering & analysis/
      - Slices X[:, :, channels, :] → input shape (N, 1, 8, 1500)
-     - Same LOSO loop, checkpointing, and logging as cross_subject/deep_learning/
+     - Same LOSO loop, checkpointing, and logging as the 24-channel DL baseline
      - Final cell compares 8-channel vs 24-channel accuracy side-by-side
-     - Models: EMG_TCN, EEGNet, ShallowConvNet (set MODEL_TYPE in config cell)
+     - Models: EMG_TCN, EEGNet, ShallowConvNet
 
   b) Feature-based version
-     Folder  : experiments/efficient/feature_based/  [to be created]
-     - Same pipeline on 8 channels; feature-based input shrinks accordingly
+     Notebook: efficient.ipynb
+     - Same pipeline on 8 channels; SVM (C=50) + FeatureMLP
+     - Channel-major layout makes this a column slice of the 24-channel features:
+       41 features × 8 channels = 328-dim per window (no re-extraction needed)
 
   Target: match or closely approach the 24-channel cross-subject baseline
           accuracy with one-third the electrode count.
 
 --------------------------------------------------------------------------------
-Phase 6 — Per-Subject Analysis
+Phase 6 — Per-Subject Per-Class Analysis
 Status : PENDING (analysis only — no retraining needed)
 --------------------------------------------------------------------------------
 

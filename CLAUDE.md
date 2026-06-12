@@ -9,161 +9,185 @@ EMG gesture recognition research project built on the [putEMG dataset](https://b
 
 ```
 putEMG prime/
-├── src/                          # Shared Python modules (imported by all notebooks)
-│   ├── emg_loader.py             # Data loading, LOSO & within-subject splits
-│   ├── feature_extraction.py     # libemg 50-feature extractor (batch_extract)
-│   ├── deep_learning_models.py   # EEGNet, ShallowConvNet, DeepConvNet, CNN_LSTM, EMG_TCN
-│   └── feature_based_models.py   # FeatureLSTM, FeatureGRU, FeatureTransformer
+├── CLAUDE.md
+├── baseline.ipynb                # All 4 baseline experiments (Colab-ready)
+├── clustering.ipynb              # Phase 3: feature-space 24→8 channel selection
+├── efficient.ipynb               # Phase 5: 8-channel models
+│
+├── src/
+│   ├── deep_learning_models.py   # EEGNet, ShallowConvNet, EMG_TCN
+│   ├── feature_based_models.py   # FeatureMLP
+│   ├── feature_extraction.py     # libemg 41-feature extractor (batch_extract_features)
+│   ├── housekeeping.py           # loaders, fold splits, majority vote, _write_results
+│   ├── preprocessing.py          # bandpass/notch/resample/z-score
+│   ├── runners.py                # run_within, run_cross
+│   └── trainer.py                # train, evaluate
+│
+├── scripts/
+│   └── run_baseline.py           # runs all 4 baseline experiments (FORCE_RERUN=True)
+│
+├── data/
+│   ├── processed gestures/{train,eval}/   emg_gestures_SS_U.npz  (N×24×1500)
+│   └── features/{train,eval}/             features_SS_flat_rep.npz
 │
 ├── data_preprocessing/
 │   ├── matlab/                   # CSV → combinedCell .mat (put_emg_driver.m)
-│   ├── preprocessing.py          # Bandpass 20–700 Hz + notch 30/50/60/90/150 Hz, resample to 1500, z-score
-│   ├── feature_extraction.py     # Legacy 8-feature extractor (used by driver.ipynb only)
-│   └── driver.ipynb              # Entry point for preprocessing
+│   └── driver.ipynb              # preprocessing entry point (Google Colab)
 │
-├── experiments/
-│   ├── within_subject/
-│   │   ├── deep_learning/        # 3-fold CV per subject — COMPLETE (38 subjects)
-│   │   └── feature_based/        # 3-fold CV per subject — NOT YET RUN
-│   │
-│   ├── cross_subject/            # LOSO (Leave-One-Subject-Out)
-│   │   ├── deep_learning/        # COMPLETE — all 44 folds, all 3 models
-│   │   └── feature_based/        # NOT YET RUN
-│   │
-│   ├── clustering/               # 24→8 channel reduction
-│   │   ├── clustering_features.ipynb  # Feature-based channel clustering
-│   │   ├── anatomical_validation.ipynb  # Anatomy coverage analysis
-│   │   └── archive/              # Raw-signal clustering (superseded)
-│   │
-│   └── efficient/
-│       └── deep_learning/        # Reduced 8-channel model — NOT YET RUN
+├── weights/baseline/
+│   ├── within_dl/                # per-subject .pt (all 3 DL models inside each)
+│   ├── within_feat/              # per-subject .pt (SVM + FeatureMLP)
+│   ├── cross_dl/                 # per-LOSO-fold .pt (all 3 DL models inside each)
+│   └── cross_feat/               # per-LOSO-fold .pt (SVM_W + FeatureMLP)
+│
+├── results/baseline/
+│   └── results_baseline_{within,cross}_{DL,feature}_{model}.txt
+│
+├── clustering & analysis/        # Phase 3/4 outputs
+│   ├── feat_representative_channels.npy  (8,) 0-indexed  [after Phase 3]
+│   └── feat_cluster_labels.npy           (24,) cluster assignments
 │
 └── docs/
-    ├── plan.txt                  # Full 7-phase research plan
-    └── claude_report.txt         # Earlier progress report
+    ├── plan.txt
+    └── project_summary.txt
 ```
 
 ---
 
 ## Import Pattern
 
-All notebooks add `src/` to sys.path using a relative path from their location:
+All notebooks are at the project root:
 
 ```python
-_SRC = os.path.abspath(os.path.join(os.getcwd(), '..', '..', '..', 'src'))
-if _SRC not in sys.path:
-    sys.path.insert(0, _SRC)
+import sys
+sys.path.insert(0, 'src')
 ```
 
-Notebooks at depth 3 from root (e.g. `experiments/within_subject/deep_learning/`) use 3 levels of `..`.
-Clustering notebooks at depth 2 use 2 levels of `..`.
+On Colab, `baseline.ipynb` also mounts Drive and `os.chdir`s to the project root so all paths stay relative.
 
 ---
 
 ## Data
 
-- Raw .mat files: `/Volumes/KRIS/data/UG_per_subject/emg_gestures_SS_U.mat` (44 files)
-- Feature cache: `/Volumes/KRIS/data/features_sequence/` — shared between within- and cross-subject feature notebooks; auto-extracted on first run
+- Preprocessed signal files: `data/processed gestures/{train,eval}/emg_gestures_SS_U.npz`
+- Feature files: `data/features/{train,eval}/features_SS_flat_rep.npz`
 
 ---
 
-## Results
+## Feature Dimensions
 
-### Within-Subject (3-fold CV) — deep learning — COMPLETE
+41 single-scalar libemg features × 24 channels = **984 features per window**.
+Sliding window: size=250, shift=50 → **26 windows per rep**.
+Stored flat: `(N_reps, 26 × 984)` = `(N_reps, 25584)`.
+Loader reshapes to `(N_reps, 26, 984)` — channel-major layout, so channel c is columns `[c*41 : (c+1)*41]`.
 
-38 subjects evaluated (38–44 subjects depending on model, some skipped due to data issues).
+The 9 excluded libemg groups (not 1-scalar-per-channel): AR, CC, DFTR, WENG, WV, WWL, WENT, RMSPHASOR, WLPHASOR.
 
-| Model | Mean Acc | Std |
-|-------|----------|-----|
-| **EMG_TCN** | **97.47%** | ±2.78% |
-| ShallowConvNet | 93.50% | ±4.09% |
-| EEGNet | 91.05% | ±5.56% |
-| putEMG paper (SVM+RMS) | ~90% | — |
+---
 
-All three models beat the published ~90% benchmark. EMG_TCN is the clear winner.
+## Model Protocols
 
-### Cross-Subject LOSO — deep learning — COMPLETE
+### Within-subject (`run_within`)
 
-44/44 folds complete for all 3 models.
+| Type | Models | SVM kernel | Input to model |
+|------|--------|-----------|----------------|
+| `deep_learning` | EEGNet, ShallowConvNet, EMG_TCN | — | `(N, 1, 24, 1500)` raw signal |
+| `feature_based` | SVM, FeatureMLP | **RBF**, C=50 | `(N×26, 984)` window-level → majority vote |
+
+`WITHIN_FEATURE_MODELS = ['SVM', 'FeatureMLP']`
+
+### Cross-subject (`run_cross`)
+
+| Type | Models | SVM kernel | Input to model |
+|------|--------|-----------|----------------|
+| `deep_learning` | EEGNet, ShallowConvNet, EMG_TCN | — | `(N, 1, 24, 1500)` raw signal |
+| `feature_based` | SVM_W, FeatureMLP | **LinearSVC**, C=50 | `(N×26, 984)` window-level → majority vote |
+
+`CROSS_FEATURE_MODELS = ['SVM_W', 'FeatureMLP']`
+
+LinearSVC is used instead of RBF for cross-subject because the 43-subject pool yields ~330k windows — RBF SVC is O(n²) and intractable at this scale. LinearSVC scales linearly. Window-level + majority vote protocol is identical to within-subject.
+
+---
+
+## Result File Format
+
+One file per model: `results/baseline/results_baseline_{within,cross}_{DL,feature}_{model}.txt`
+
+```
+phase        = baseline
+protocol     = within
+approach     = DL
+model        = EMG_TCN
+channels     = 24
+date         = 2026-06-12
+
+subject    val_acc   test_acc   epochs
+------------------------------------------
+03          96.45%     98.27%      12.0
+...
+
+mean_val  = 96.1%  ±  2.3%
+mean_test = 98.27% ±  2.83%
+best      = 03 (99.5%)
+worst     = 06 (88.2%)
+n         = 44/44
+```
+
+SVM always shows `N/A` for val_acc and epochs (no training loop).
+For within-subject (3-fold CV), val_acc and epochs are means across the 3 folds.
+
+---
+
+## Results (as of 2026-06-12) — RUNNING
+
+All baselines are being re-run from scratch. Numbers below are from prior runs.
+
+### Within-Subject (3-fold CV, 44 subjects)
+
+| Model | Mean Acc | Std | Notes |
+|-------|----------|-----|-------|
+| **EMG_TCN** | **98.27%** | ±2.83% | best DL |
+| ShallowConvNet | 95.22% | ±4.05% | |
+| EEGNet | 93.17% | ±5.29% | |
+| **SVM** (RBF, window-level) | **~96%** | ~±4% | best feature-based; putEMG paper protocol |
+| FeatureMLP | ~82% | — | per-fold instability on some subjects |
+| putEMG paper | ~90% | — | benchmark |
+
+### Cross-Subject LOSO (44/44 folds)
 
 | Model | Mean Acc | Std | Best | Worst |
 |-------|----------|-----|------|-------|
-| **EMG_TCN** | **80.76%** | ±12.38% | Subj 14 & 48 (99.29%) | Subj 06 (53.93%) |
-| EEGNet | 77.23% | ±12.05% | Subj 27 (98.21%) | Subj 06 (48.57%) |
-| ShallowConvNet | 73.38% | ±11.94% | Subj 27 (95.00%) | Subj 17 (37.50%) |
-
-Key observations:
-- ~12 pp std is high — some subjects near-perfect, others near-chance
-- Val accuracy (93% for EMG_TCN) is much higher than test (81%) — gap reflects inter-subject variance the model hasn't seen
-- Subject 06 is hardest across all models; Subject 27 is easiest
-- Cross-subject is fundamentally harder than within-subject — subject-adaptive fine-tuning is the natural next step
-
-### Feature-Based & Reduced-Channel — NOT YET RUN
+| **EMG_TCN** | **85.01%** | ±12.20% | Subj 14 (99.63%) | Subj 06 (50.00%) |
+| ShallowConvNet | 83.51% | ±10.34% | Subj 33 (98.91%) | Subj 26 (57.76%) |
+| EEGNet | 83.28% | ±11.10% | Subj 33 (98.91%) | Subj 07 (59.42%) |
+| SVM_W (LinearSVC) | pending | — | — | — |
+| FeatureMLP | pending | — | — | — |
 
 ---
 
-## Pending Work (from docs/plan.txt)
+## Pending Work
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1b | Within-subject feature-based (FeatureLSTM/GRU/Transformer) | Notebook ready, not run |
-| 2b | Cross-subject feature-based LOSO | Notebook ready, not run |
-| 3 | Feature-based channel clustering (24→8) | Notebook ready, not yet run |
-| 4 | Anatomical validation of clusters | Notebook ready, not yet run |
-| 5a | Reduced-channel DL model (8 channels) | Notebook ready, not yet run |
-| 5b | Reduced-channel feature-based model | Notebook ready, not yet run |
+| 1a | Within-subject DL | **RUNNING** |
+| 1b | Within-subject feature-based | **RUNNING** |
+| 2a | Cross-subject LOSO DL | **RUNNING** |
+| 2b | Cross-subject LOSO feature-based (SVM_W LinearSVC + FeatureMLP) | **PENDING** |
+| 3 | Feature-space channel clustering (24→8) | Not started |
+| 4 | Anatomical validation of clusters | Not started |
+| 5a | Reduced-channel DL (8 channels) | Not started |
+| 5b | Reduced-channel feature-based (8 channels) | Not started |
 | 6 | Per-subject per-class accuracy analysis | Not started |
 | 7 | Real-time data collection | Future |
 
 ### Phase 3 & 5 Dependency Chain
-1. Run `experiments/clustering/clustering_features.ipynb` → produces `feat_representative_channels.npy`
-2. Run `experiments/clustering/anatomical_validation.ipynb` → validates anatomical coverage
-3. Run `experiments/efficient/deep_learning/model.ipynb` → loads `feat_representative_channels.npy`, trains 8-channel LOSO
-4. Run `experiments/efficient/feature_based/model.ipynb` → same, for feature-based models
-5. Final cells auto-compare 8-channel vs 24-channel baseline
-
----
-
-## Model Input Shapes
-
-| Approach | Input shape | Source |
-|----------|-------------|--------|
-| Deep learning | `(batch, 1, 24, 1500)` | `load_all_subjects()` |
-| Feature-based | `(batch, 26, 3192)` | `load_feature_subjects(mode='sequence')` |
-| Efficient (8-ch DL) | `(batch, 1, 8, 1500)` | `load_all_subjects()` + `X[:, :, channels, :]` |
-
-Channel selection for efficient model:
-```python
-channels = np.load('experiments/clustering/feat_representative_channels.npy')  # (8,) 0-indexed
-subjects = [(name, X[:, :, channels, :], y) for name, X, y in load_all_subjects(DATA_DIR)]
-```
-
-Feature dimensions: 50 feature groups × 24 channels = 3192. Sliding window: size=250, shift=50 → 26 windows/rep.
-
----
-
-## Key Loader Functions (src/emg_loader.py)
-
-```python
-load_all_subjects(dir_path)
-    → list of (name, X, y)   X: (N, 1, 24, 1500)
-
-load_feature_subjects(dir_path, mode='sequence')
-    → list of (name, X, y)   X: (N, 26, 3192)
-
-make_loso_train_val_test(subjects, test_subject_idx, val_frac=0.10, batch_size=16)
-    → train_loader, val_loader, test_loader
-
-make_within_subject_loaders(X, y, n_folds=3, test_fold_idx=0, batch_size=16, seed=42)
-    → train_loader, test_loader
-```
-
-Both loaders are shape-agnostic on axis 0 — they work identically for DL and feature inputs.
+1. `clustering.ipynb` → `clustering & analysis/feat_representative_channels.npy`
+2. `efficient.ipynb` → loads channel indices, slices `X[:, :, channels, :]` for DL or `X[:, :, channels, :]` for features (41×8=328/window)
 
 ---
 
 ## Checkpointing
 
-All training notebooks skip already-completed folds automatically — safe to interrupt and resume.
-Weights saved to `experiments/<scope>/<approach>/weights/<MODEL_TYPE>/`.
-Results logged to `experiments/<scope>/<approach>/results/`.
+All training skips already-completed subjects/folds automatically — safe to interrupt and resume.
+Checkpoints: `weights/baseline/{within_dl,within_feat,cross_dl,cross_feat}/{sid}.pt`
+Results auto-written after each subject completes.

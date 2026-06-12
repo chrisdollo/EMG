@@ -13,14 +13,14 @@ function result = prime_get_sensor_readings_1(x)
     headers = T.Properties.VariableNames;
     Names = headers(2:25);
         
-    traj_1 = T{:,26};
-    new_T = T{:, 2:25}; 
-    
-    
+    traj_gt = T.TRAJ_GT;   % column 29 — smoothed ground-truth labels (replaces TRAJ_1 col 26)
+    new_T = T{:, 2:25};
+
+
     % We nullify all the sensor reading for when the subject was allowed to relax
-    mask = (traj_1 == -1);
+    mask = (traj_gt == -1);
     new_T(mask,:)= 0;
-    new_T = [new_T, traj_1];
+    new_T = [new_T, traj_gt];
 
 
     result = new_T;

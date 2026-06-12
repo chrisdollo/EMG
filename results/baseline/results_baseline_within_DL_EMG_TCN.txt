@@ -1,0 +1,19 @@
+phase        = baseline
+protocol     = within
+approach     = DL
+model        = EMG_TCN
+channels     = 24
+date         = 2026-06-12
+
+subject    val_acc   test_acc   epochs
+------------------------------------------
+03         100.00%     99.63%     5.3
+04          98.72%     96.40%     9.0
+05          98.81%     97.80%    11.3
+06          85.71%     83.99%    13.7
+
+mean_val  = 95.81%  ±  5.85%
+mean_test = 94.45%  ±  6.15%
+best      = 03 (99.63%)
+worst     = 06 (83.99%)
+n         = 4/44

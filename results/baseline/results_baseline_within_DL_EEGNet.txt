@@ -1,0 +1,20 @@
+phase        = baseline
+protocol     = within
+approach     = DL
+model        = EEGNet
+channels     = 24
+date         = 2026-06-12
+
+subject    val_acc   test_acc   epochs
+------------------------------------------
+03          96.30%     94.48%    11.3
+04          84.62%     82.74%    11.7
+05          84.52%     78.72%    16.3
+06          47.62%     45.07%     5.0
+07          83.33%     84.79%    15.7
+
+mean_val  = 79.28%  ±  16.52%
+mean_test = 77.16%  ±  16.86%
+best      = 03 (94.48%)
+worst     = 06 (45.07%)
+n         = 5/44

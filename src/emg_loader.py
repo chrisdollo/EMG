@@ -1,23 +1,6 @@
-# emg_loader.py — Shared data loading & LOSO split utilities
-
-# Loads preprocessed per-subject .mat files and 
-# Builds PyTorch DataLoaders for Leave-One-Subject-Out (LOSO) cross-validation.
-
-# Shared across all model approaches (deep learning, feature-based, etc.).
-
-# Usage
-# from src.emg_loader import ( BCIDataset, load_all_subjects, make_loso_loaders, loso_folds, generate_loso_configs)
-
-# Expected .mat file format
-# -------------------------
-#     Key: "combinedCell"  shape (N_reps, 7)
-#     Each cell: ndarray (1500, 24) float64 — one gesture repetition
-
-
 import os
 import glob
 import random
-import scipy.io
 import numpy as np
 from scipy.signal import welch
 
@@ -30,6 +13,12 @@ DATA_DIR         = '/Volumes/KRIS/data/UG_per_subject'
 BATCH_SIZE       = 16
 TEST_SUBJECT_IDX = 0
 DEV_SUBJECT_IDX  = 1
+
+# putEMG gesture IDs → 0-indexed class labels for CrossEntropyLoss
+GESTURE_ID_TO_CLASS = {1: 0, 2: 1, 3: 2, 6: 3, 7: 4, 8: 5, 9: 6}
+
+def _remap_labels(y):
+    return np.array([GESTURE_ID_TO_CLASS[int(g)] for g in y], dtype=np.int64)
 
 
 # ── Dataset ───────────────────────────────────────────────────────────────────
@@ -47,55 +36,102 @@ class BCIDataset(Dataset):
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 
-# loads the data for one subject
-def load_data(file_path):
-    """
-    Load a single per-subject .mat file with key "combinedCell".
-
-    Returns
-    -------
-    X : ndarray (N, 1500, 24)  float32
-    Y : ndarray (N,)           int64
-    """
-    mat_file   = scipy.io.loadmat(file_path)
-    cell_array = mat_file["combinedCell"]
-
-    X, Y = [], []
-    num_classes     = cell_array.shape[1]
-    num_training_ex = cell_array.shape[0]
-
-    for gesture_type in range(num_classes):
-        for row_idx in range(num_training_ex):
-            cell = np.array(cell_array[row_idx, gesture_type])
-            X.append(cell.astype(np.float32))
-            Y.append(gesture_type)
-
-    return np.array(X), np.array(Y)
-
-# reshape a subjects data
-def _reshape(X, Y):
-    """Reshape from (N, 1500, 24) to (N, 1, 24, 1500) and cast Y to int64."""
-    X = X[:, np.newaxis, :, :]          # (N, 1, 1500, 24)
-    X = np.transpose(X, (0, 1, 3, 2))  # (N, 1, 24, 1500)
-    Y = Y.squeeze().astype(np.int64)
-    return X, Y
-
-
-# Load all per-subject .mat files from dir_path.
 def load_all_subjects(dir_path):
+    # Loads .npz files produced by build_dataset(); each file has X:(N,24,1500) y:(N,)
+    npz_files = sorted(glob.glob(os.path.join(dir_path, "*.npz")))
+    if not npz_files:
+        raise FileNotFoundError(f"No .npz files found in: {dir_path}")
 
-    mat_files = sorted(glob.glob(os.path.join(dir_path, "*.mat")))
-    if not mat_files:
-        raise FileNotFoundError(f"No .mat files found in: {dir_path}")
-
-    print(f"Loading {len(mat_files)} subject file(s) from: {dir_path}\n")
+    print(f"Loading {len(npz_files)} subject file(s) from: {dir_path}\n")
     subjects = []
-    for file_path in mat_files:
+    for file_path in npz_files:
         name = os.path.basename(file_path)
-        X, Y = load_data(file_path)
-        X, Y = _reshape(X, Y)
-        print(f"  → {name}  ({X.shape[0]} samples)")
-        subjects.append((name, X, Y))
+        data = np.load(file_path)
+        X = data['X'].astype(np.float32)[:, np.newaxis, :, :]  # (N, 1, 24, 1500)
+        y = _remap_labels(data['y'])                            # (N,) → 0-indexed
+        print(f"  → {name}  ({X.shape[0]} reps)")
+        subjects.append((name, X, y))
+
+    print(f"\nTotal subjects loaded: {len(subjects)}")
+    return subjects
+
+
+def load_subjects_combined(train_dir, eval_dir):
+    """Load train+eval .npz files and concatenate per subject.
+
+    Matches files by subject number extracted from filename.
+    Returns list of (name, X, y) with X:(N_total, 1, 24, 1500), labels 0-indexed.
+    """
+    import re as _re
+
+    def _sid(path):
+        m = _re.search(r'emg_gestures_(\d+)', os.path.basename(path))
+        return m.group(1) if m else None
+
+    train_files = {_sid(p): p for p in sorted(glob.glob(os.path.join(train_dir, '*.npz'))) if _sid(p)}
+    eval_files  = {_sid(p): p for p in sorted(glob.glob(os.path.join(eval_dir,  '*.npz'))) if _sid(p)}
+
+    all_ids = sorted(set(train_files) | set(eval_files))
+    print(f"Combining train+eval for {len(all_ids)} subject(s)\n")
+
+    subjects = []
+    for sid in all_ids:
+        parts_X, parts_y = [], []
+        for src in (train_files, eval_files):
+            if sid in src:
+                d = np.load(src[sid])
+                parts_X.append(d['X'].astype(np.float32)[:, np.newaxis, :, :])
+                parts_y.append(_remap_labels(d['y']))
+        X = np.concatenate(parts_X, axis=0)
+        y = np.concatenate(parts_y, axis=0)
+        name = f'emg_gestures_{sid}_U.npz'
+        print(f"  → {name}  ({X.shape[0]} reps)")
+        subjects.append((name, X, y))
+
+    print(f"\nTotal subjects loaded: {len(subjects)}")
+    return subjects
+
+
+def load_feature_subjects_combined(train_dir, eval_dir, mode='flat_rep'):
+    """Load train+eval feature .npz files, concatenate, and reshape to sequence format.
+
+    Returns list of (name, X, y) with X:(N, n_wins, feat_per_win), labels 0-indexed.
+    """
+    import re as _re
+
+    def _sid(path):
+        m = _re.search(r'features_(\d+)', os.path.basename(path))
+        return m.group(1) if m else None
+
+    pattern = f'*_{mode}.npz'
+    train_files = {_sid(p): p for p in sorted(glob.glob(os.path.join(train_dir, pattern))) if _sid(p)}
+    eval_files  = {_sid(p): p for p in sorted(glob.glob(os.path.join(eval_dir,  pattern))) if _sid(p)}
+
+    all_ids = sorted(set(train_files) | set(eval_files))
+    if not all_ids:
+        raise FileNotFoundError(
+            f"No '{pattern}' files found in {train_dir} or {eval_dir}.\n"
+            "Run driver.ipynb Stage 2 first."
+        )
+    print(f"Combining train+eval feature files for {len(all_ids)} subject(s)\n")
+
+    subjects = []
+    for sid in all_ids:
+        parts_X, parts_y = [], []
+        n_wins = None
+        for src in (train_files, eval_files):
+            if sid in src:
+                d = np.load(src[sid])
+                parts_X.append(d['X'].astype(np.float32))
+                parts_y.append(_remap_labels(d['y']))
+                if n_wins is None:
+                    n_wins = int(d['n_windows_per_rep'])
+        X_flat = np.concatenate(parts_X, axis=0)           # (N, n_wins * feat_per_win)
+        y      = np.concatenate(parts_y, axis=0)
+        X      = X_flat.reshape(len(X_flat), n_wins, -1)   # (N, n_wins, feat_per_win)
+        name   = f'features_{sid}_{mode}.npz'
+        print(f"  → {name}  X={X.shape}")
+        subjects.append((name, X, y))
 
     print(f"\nTotal subjects loaded: {len(subjects)}")
     return subjects
@@ -244,29 +280,9 @@ N_FEATURES_PER_CH = len(FEATURE_NAMES)   # 8
 N_FEATURES_TOTAL  = N_FEATURES_PER_CH * 24  # 192
 
 
-def _zero_crossings(x: np.ndarray, threshold: float = 1e-4) -> float:
-    signs = np.sign(x)
-    diffs = np.abs(np.diff(x))
-    cross = (signs[:-1] != signs[1:]) & (diffs >= threshold)
-    return float(cross.sum())
 
 
-def _slope_sign_changes(x: np.ndarray, threshold: float = 1e-4) -> float:
-    d = np.diff(x)
-    return float(np.sum((d[:-1] * d[1:]) < -threshold))
 
-
-def _spectral_features(x: np.ndarray, fs: float):
-    nperseg = min(len(x), 128)
-    freqs, psd = welch(x, fs=fs, nperseg=nperseg)
-    total_power = psd.sum()
-    if total_power < 1e-12:
-        return 0.0, 0.0
-    mnf = float(np.sum(freqs * psd) / total_power)
-    cumulative = np.cumsum(psd)
-    idx = min(np.searchsorted(cumulative, total_power / 2.0), len(freqs) - 1)
-    mdf = float(freqs[idx])
-    return mnf, mdf
 
 
 def _extract_window(window: np.ndarray, fs: float) -> np.ndarray:
@@ -377,99 +393,99 @@ def extract_features_from_subjects(
 
 # ── Feature file I/O ─────────────────────────────────────────────────────────
 
-VALID_MODES = ("flat_window", "flat_rep", "sequence")
+# VALID_MODES = ("flat_window", "flat_rep", "sequence")
 
 
-def load_feature_subjects(dir_path, mode):
-    """
-    Load pre-extracted per-subject feature files into a subjects list.
+# def load_feature_subjects(dir_path, mode):
+#     """
+#     Load pre-extracted per-subject feature files into a subjects list.
 
-    Files are produced by feature_extraction.batch_extract_features() and must
-    be saved as .npz with keys 'X' and 'y'.
+#     Files are produced by feature_extraction.batch_extract_features() and must
+#     be saved as .npz with keys 'X' and 'y'.
 
-    Expected file pattern: features_subject_*_<mode>.npz
+#     Expected file pattern: features_subject_*_<mode>.npz
 
-    Parameters
-    ----------
-    dir_path : str   — folder containing the .npz files
-    mode     : str   — 'flat_window', 'flat_rep', or 'sequence'
+#     Parameters
+#     ----------
+#     dir_path : str   — folder containing the .npz files
+#     mode     : str   — 'flat_window', 'flat_rep', or 'sequence'
 
-    Returns
-    -------
-    subjects : list of (name, X, y)
-        flat_window  X shape : (N_windows, 192)     y : (N_windows,)
-        flat_rep     X shape : (N_reps,    4992)    y : (N_reps,)
-        sequence     X shape : (N_reps,    26, 192) y : (N_reps,)
-        Sorted by filename.
-    """
-    if mode not in VALID_MODES:
-        raise ValueError(f"mode must be one of {VALID_MODES}, got '{mode}'")
+#     Returns
+#     -------
+#     subjects : list of (name, X, y)
+#         flat_window  X shape : (N_windows, 192)     y : (N_windows,)
+#         flat_rep     X shape : (N_reps,    4992)    y : (N_reps,)
+#         sequence     X shape : (N_reps,    26, 192) y : (N_reps,)
+#         Sorted by filename.
+#     """
+#     if mode not in VALID_MODES:
+#         raise ValueError(f"mode must be one of {VALID_MODES}, got '{mode}'")
 
-    pattern   = os.path.join(dir_path, f"*_{mode}.npz")
-    npz_files = sorted(glob.glob(pattern))
+#     pattern   = os.path.join(dir_path, f"*_{mode}.npz")
+#     npz_files = sorted(glob.glob(pattern))
 
-    if not npz_files:
-        raise FileNotFoundError(
-            f"No '*_{mode}.npz' files found in: {dir_path}\n"
-            f"Run batch_extract_features(mode='{mode}') first."
-        )
+#     if not npz_files:
+#         raise FileNotFoundError(
+#             f"No '*_{mode}.npz' files found in: {dir_path}\n"
+#             f"Run batch_extract_features(mode='{mode}') first."
+#         )
 
-    print(f"Loading {len(npz_files)} '{mode}' feature file(s) from: {dir_path}\n")
-    subjects = []
-    for fpath in npz_files:
-        name = os.path.basename(fpath)
-        data = np.load(fpath)
-        X    = data['X'].astype(np.float32)
-        y    = data['y'].astype(np.int64)
-        print(f"  → {name}  X={X.shape}")
-        subjects.append((name, X, y))
+#     print(f"Loading {len(npz_files)} '{mode}' feature file(s) from: {dir_path}\n")
+#     subjects = []
+#     for fpath in npz_files:
+#         name = os.path.basename(fpath)
+#         data = np.load(fpath)
+#         X    = data['X'].astype(np.float32)
+#         y    = data['y'].astype(np.int64)
+#         print(f"  → {name}  X={X.shape}")
+#         subjects.append((name, X, y))
 
-    print(f"\nTotal subjects loaded: {len(subjects)}")
-    return subjects
-
-
-def make_loso_train_val_test(subjects, test_subject_idx, val_frac=0.10, batch_size=BATCH_SIZE, seed=42):
-    """
-    LOSO split with within-pool validation.
-
-    Test  = one held-out subject (never seen during training).
-    Train = 90% of remaining subjects' data (stratified by class, seeded).
-    Val   = 10% of remaining subjects' data — used only for early stopping.
-
-    No subject is wasted as a dedicated dev holdout; all N-1 subjects
-    contribute to the training pool.
-    """
-    N = len(subjects)
-    assert 0 <= test_subject_idx < N
-
-    test_name, X_test, y_test = subjects[test_subject_idx]
-
-    pool_X = np.concatenate([X for i, (_, X, _) in enumerate(subjects) if i != test_subject_idx])
-    pool_y = np.concatenate([y for i, (_, _, y) in enumerate(subjects) if i != test_subject_idx])
-
-    rng = np.random.default_rng(seed)
-    train_idx, val_idx = [], []
-    for cls in np.unique(pool_y):
-        idx = np.where(pool_y == cls)[0].copy()
-        rng.shuffle(idx)
-        n_val = max(1, round(len(idx) * val_frac))
-        val_idx.extend(idx[:n_val])
-        train_idx.extend(idx[n_val:])
-
-    X_train, y_train = pool_X[train_idx], pool_y[train_idx]
-    X_val,   y_val   = pool_X[val_idx],   pool_y[val_idx]
-
-    print(f"  Test  : {test_name}  ({X_test.shape[0]} reps)")
-    print(f"  Train : {X_train.shape[0]} reps  |  Val: {X_val.shape[0]} reps  ({N-1} subjects, 90/10 split)")
-
-    train_loader = DataLoader(BCIDataset(X_train, y_train), batch_size=batch_size, shuffle=True)
-    val_loader   = DataLoader(BCIDataset(X_val,   y_val),   batch_size=batch_size, shuffle=False)
-    test_loader  = DataLoader(BCIDataset(X_test,  y_test),  batch_size=batch_size, shuffle=False)
-
-    return train_loader, val_loader, test_loader
+#     print(f"\nTotal subjects loaded: {len(subjects)}")
+#     return subjects
 
 
-def make_loso_splits(subjects, test_subject_idx, dev_subject_idx):
+# def make_loso_train_val_test(subjects, test_subject_idx, val_frac=0.10, batch_size=BATCH_SIZE, seed=42):
+#     """
+#     LOSO split with within-pool validation.
+
+#     Test  = one held-out subject (never seen during training).
+#     Train = 90% of remaining subjects' data (stratified by class, seeded).
+#     Val   = 10% of remaining subjects' data — used only for early stopping.
+
+#     No subject is wasted as a dedicated dev holdout; all N-1 subjects
+#     contribute to the training pool.
+#     """
+#     N = len(subjects)
+#     assert 0 <= test_subject_idx < N
+
+#     test_name, X_test, y_test = subjects[test_subject_idx]
+
+#     pool_X = np.concatenate([X for i, (_, X, _) in enumerate(subjects) if i != test_subject_idx])
+#     pool_y = np.concatenate([y for i, (_, _, y) in enumerate(subjects) if i != test_subject_idx])
+
+#     rng = np.random.default_rng(seed)
+#     train_idx, val_idx = [], []
+#     for cls in np.unique(pool_y):
+#         idx = np.where(pool_y == cls)[0].copy()
+#         rng.shuffle(idx)
+#         n_val = max(1, round(len(idx) * val_frac))
+#         val_idx.extend(idx[:n_val])
+#         train_idx.extend(idx[n_val:])
+
+#     X_train, y_train = pool_X[train_idx], pool_y[train_idx]
+#     X_val,   y_val   = pool_X[val_idx],   pool_y[val_idx]
+
+#     print(f"  Test  : {test_name}  ({X_test.shape[0]} reps)")
+#     print(f"  Train : {X_train.shape[0]} reps  |  Val: {X_val.shape[0]} reps  ({N-1} subjects, 90/10 split)")
+
+#     train_loader = DataLoader(BCIDataset(X_train, y_train), batch_size=batch_size, shuffle=True)
+#     val_loader   = DataLoader(BCIDataset(X_val,   y_val),   batch_size=batch_size, shuffle=False)
+#     test_loader  = DataLoader(BCIDataset(X_test,  y_test),  batch_size=batch_size, shuffle=False)
+
+#     return train_loader, val_loader, test_loader
+
+
+# def make_loso_splits(subjects, test_subject_idx, dev_subject_idx):
     """
     Build train / dev / test numpy splits for one LOSO fold.
 

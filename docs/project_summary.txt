@@ -1,6 +1,6 @@
 putEMG Prime — Project Summary
 ================================
-Last updated: 2026-05-28
+Last updated: 2026-06-12
 
 ================================================================================
 OVERVIEW
@@ -16,7 +16,7 @@ system using the putEMG dataset. The project progresses through four stages:
 
 Two parallel classification pipelines run throughout every stage:
   - Deep learning  : CNN/TCN models on raw time-series (input: 1 × 24 × 1500)
-  - Feature-based  : 50 libemg features per channel → sequence models (LSTM/GRU/Transformer)
+  - Feature-based  : 41 single-scalar libemg features per channel → SVM / FeatureMLP
 
 The end target is a system that generalizes to completely new subjects using
 roughly one-third the electrode count, making it practical for a wearable BCI.
@@ -34,7 +34,6 @@ DATASET — putEMG (Kaczmarek et al., 2019)
               Ch 1 of each band placed over the ulna bone, numbered clockwise
   Sampling  : 5120 Hz
   Gestures  : 7 active gestures (G1, G2, G3, G6, G7, G8, G9)
-              e.g., fist, open hand, pinch, flexion/extension variants
   Reps      : ~40 per gesture per subject across 2 recording sessions
   Format    : CSV per session → MATLAB preprocessing → per-subject .mat files
 
@@ -55,14 +54,32 @@ Step 2 — Python  (data_preprocessing/driver.ipynb + preprocessing.py)
   - Notch filters: 30, 50, 60, 90, 150 Hz (IIR notch Q=30, zero-phase) — mains/equipment interference
   - Resample: each rep → 1500 samples (uniform length)
   - Normalize: per-channel z-score
-  Output: emg_gestures_SS_U.mat  (44 files, one per subject)
+  Output: emg_gestures_SS_U.npz  (44 files, one per subject)
 
-Step 3 — Feature extraction  (data_preprocessing/feature_extraction.py)
-  Runs in Google Colab as part of the driver; data on Google Drive.
+Step 3 — Feature extraction  (src/feature_extraction.py)
+  Runs in Google Colab (k.ipynb) for speed, or locally via test.py.
   Sliding window: size=250 samples (~49 ms), shift=50 samples → 26 windows/rep
-  50 libemg feature groups × 24 channels = 3192-dim per window
-  All windows concatenated per rep → flat_rep format: (N_reps, 26 × 3192)
-  Note: experiments/*/feature_based/ notebooks use src/feature_extraction.py (sequence mode)
+  41 single-scalar libemg features × 24 channels = 984-dim per window
+  Layout: CHANNEL-MAJOR — each channel is a contiguous 41-feature block, so
+          channel c occupies columns [c*41 : (c+1)*41]. This makes the 24→8
+          channel reduction a clean column slice (no re-extraction needed).
+  Output format: (N_reps, 26 × 984) = (N_reps, 25584) flat_rep per subject
+  Output files : data/features/{train,eval}/features_SS_flat_rep.npz
+
+  Only the 41 features that emit exactly ONE scalar per channel are kept, so the
+  feature dimension scales linearly with channel count. Of libemg's 50 groups, 9
+  are EXCLUDED:
+    multi-scalar within-channel : AR, CC, DFTR, WENG, WV, WWL, WENT
+    cross-channel (phasor)      : RMSPHASOR, WLPHASOR
+
+  The 41 retained features (one scalar/channel each):
+    MAV, ZC, SSC, WL, LS, MFL, MSR, WAMP, RMS, IAV,
+    DASDV, VAR, M0, M2, M4, SPARSI, IRF, WLF, LD, MAVFD,
+    MAVSLP, MDF, MNF, MNP, MPK, SKEW, KURT, PAP, MZP, TM,
+    SM, SAMPEN, FUZZYEN, ISD, COR, MDIFF, MLK, ACT, MOB, COMP, MEAN
+
+  (Previous format used all 50 groups = 133 scalars/channel = 3192-dim/window;
+   feature-based results below predate the switch and will be re-run.)
 
 
 ================================================================================
@@ -74,14 +91,21 @@ Deep Learning  (src/deep_learning_models.py)
   ShallowConvNet — shallow CNN from Schirrmeister et al.
   EMG_TCN       — temporal convolutional network, best-performing overall
 
-Feature-Based  (src/feature_based_models.py)
-  FeatureLSTM        — bidirectional LSTM on the 26-window feature sequence
-  FeatureGRU         — same with GRU cells
-  FeatureTransformer — multi-head self-attention encoder
-  Hybrid TCN-BiLSTM  — dilated causal convolutions feed into a bidirectional LSTM;
-                       combines TCN's receptive field efficiency with BiLSTM's sequential context.
+Feature-Based  (src/runners.py + src/feature_based_models.py)
+  Within-subject (WITHIN_FEATURE_MODELS):
+    SVM        — RBF kernel, C=50, window-level training, majority vote
+    FeatureMLP — 3-layer MLP on per-window 984-dim features, majority vote
 
-All models use:
+  Cross-subject (CROSS_FEATURE_MODELS):
+    SVM_W      — LinearSVC, C=50, window-level training, majority vote
+                 (LinearSVC used instead of RBF SVC: ~330k training windows at
+                  pool size makes RBF intractable; LinearSVC scales linearly)
+    FeatureMLP — same as within-subject
+
+  The protocol (window-level training + majority vote) is identical at both
+  scales; only the kernel differs due to computational constraints.
+
+All DL models use:
   - Adam optimizer, LR 1e-3
   - ReduceLROnPlateau (factor 0.5, patience 5)
   - Early stopping (patience 5), max 20 epochs
@@ -99,77 +123,73 @@ Within-Subject (Phase 1)
 
 Cross-Subject — LOSO (Phase 2)
   - 44 folds: each subject serves as the test set once
-  - Train = remaining 43 subjects (10% held out as validation)
+  - Train = remaining 43 subjects (10% held out as validation for DL)
   - Tests generalization to completely unseen individuals
   - Gold standard for real-world BCI deployability
 
 
 ================================================================================
-RESULTS (as of 2026-05-25)
+RESULTS (as of 2026-06-12)
 ================================================================================
 
---- Within-Subject (3-fold CV, 38 subjects) --- COMPLETE ---
+NOTE: All baselines are being re-run from scratch with the unified result file
+format (header + subject|val_acc|test_acc|epochs + summary) and corrected
+model protocols. Numbers below are from prior runs and will be updated once
+the new runs complete.
+
+--- Within-Subject (3-fold CV, 44 subjects) --- RUNNING ---
 
   Model           Mean Acc    Std
-  EMG_TCN          97.47%    ±2.78%   ← best
-  ShallowConvNet   93.50%    ±4.09%
-  EEGNet           91.05%    ±5.56%
+  EMG_TCN          98.27%    ±2.83%   ← best DL
+  ShallowConvNet   95.22%    ±4.05%
+  EEGNet           93.17%    ±5.29%
+  SVM (RBF feat)   95.95%    ±4.12%   ← best feature-based; matches paper protocol
+  FeatureMLP       ~81%      —        (approximate; pending re-run)
   putEMG paper     ~90.00%   —
 
-  All three deep learning models exceed the published benchmark.
+--- Cross-Subject LOSO (44/44 folds) --- RUNNING / PENDING ---
 
---- Cross-Subject LOSO (44/44 folds, all subjects) --- COMPLETE ---
+  Model           Mean Acc    Std       Best fold             Worst fold
+  EMG_TCN          85.01%    ±12.20%   Subj 14 (99.63%)      Subj 06 (50.00%)
+  ShallowConvNet   83.51%    ±10.34%   Subj 33 (98.91%)      Subj 26 (57.76%)
+  EEGNet           83.28%    ±11.10%   Subj 33 (98.91%)      Subj 07 (59.42%)
+  SVM_W (LinearSVC) —        —        pending (window-level, majority vote)
+  FeatureMLP        —        —        pending
 
-  Model           Mean Acc    Std       Best fold           Worst fold
-  EMG_TCN          80.76%    ±12.38%   Subj 14 & 48 (99.3%)  Subj 06 (53.9%)
-  EEGNet           77.23%    ±12.05%   Subj 27 (98.2%)        Subj 06 (48.6%)
-  ShallowConvNet   73.38%    ±11.94%   Subj 27 (95.0%)        Subj 17 (37.5%)
-
-  Key observations:
-  - ~12 pp std is high: some subjects near-perfect, others near-chance
-  - Val accuracy (~93%) >> Test (~81%): inter-subject variance dominates
-  - Subject 06 is the hardest across all models; Subject 27 is the easiest
-  - Within-subject is ~17 pp higher than cross-subject for EMG_TCN
-
---- Feature-Based & Reduced-Channel --- NOT YET RUN ---
+  Key observations (DL, confirmed):
+  - EMG_TCN leads at 85.01%; ShallowConvNet and EEGNet nearly tied (~83%)
+  - ~10–12 pp std — some subjects near-perfect, others near-chance
+  - Val (~95–97%) >> Test (~83–85%): inter-subject variance dominates
+  - Subject 06 consistently hardest; Subject 33 consistently easiest
 
 
 ================================================================================
 PENDING WORK
 ================================================================================
 
-Phase 1b — Within-subject, feature-based
-  Notebook  : experiments/within_subject/feature_based/model.ipynb
-  Models    : FeatureLSTM, FeatureGRU, FeatureTransformer
-  Status    : Notebook ready, training not run
-
-Phase 2b — Cross-subject LOSO, feature-based
-  Notebook  : experiments/cross_subject/feature_based/model.ipynb
-  Status    : Notebook ready, training not run
-
 Phase 3 — Channel clustering (24 → 8)
-  Notebook  : experiments/clustering/clustering_features.ipynb
-  Method    : Feature-space correlation clustering, medoid selection
+  Notebook  : clustering & analysis/clustering_features.ipynb
+  Method    : Feature-space Pearson correlation + agglomerative Ward clustering (k=8)
+              Medoid selection per cluster; silhouette sweep to validate k=8
   Output    : feat_representative_channels.npy, feat_cluster_labels.npy
-  Status    : Notebook ready, not yet run
+  Status    : Notebook to be written
 
 Phase 4 — Anatomical validation of clusters
-  Notebook  : experiments/clustering/anatomical_validation.ipynb
-  Output    : Forearm diagram (Gray's Anatomy overlay) showing muscle coverage
-              of the 8 selected representative channels
-  Status    : Notebook ready (updated 2026-05-25 with real anatomy image overlay)
-  Depends on: Phase 3 output files
+  Notebook  : clustering & analysis/anatomical_validation.ipynb
+  Output    : Forearm ring diagram annotated with muscle groups and selected channels
+  Status    : Pending Phase 3
 
 Phase 5a — Reduced-channel deep learning (8-channel LOSO)
-  Notebook  : experiments/efficient/deep_learning/model.ipynb
+  Notebook  : efficient.ipynb
   Depends on: Phase 3 output files
-  Status    : Notebook ready, not yet run
+  Status    : To be written
 
 Phase 5b — Reduced-channel feature-based
-  Notebook  : experiments/efficient/feature_based/model.ipynb
-  Status    : To be created after 5a
+  Notebook  : efficient.ipynb (column-slice of channel-major features → 41×8=328/window)
+  Status    : To be written
 
 Phase 6 — Per-subject, per-class accuracy analysis
+  Notebook  : clustering & analysis/per_class_accuracy.ipynb
   Load saved checkpoints, run forward pass, build subjects × classes matrix
   Goal      : Identify which gestures are hardest to generalize
   Status    : Not started
@@ -184,37 +204,47 @@ PROJECT STRUCTURE
 
 putEMG prime/
 ├── src/                          Shared Python modules
-│   ├── emg_loader.py             Data loading (load_all_subjects, load_feature_subjects,
-│   │                             make_loso_train_val_test, make_within_subject_loaders)
-│   ├── feature_extraction.py     libemg 50-feature extractor (batch_extract)
-│   ├── deep_learning_models.py   EEGNet, ShallowConvNet, DeepConvNet, CNN_LSTM, EMG_TCN
-│   └── feature_based_models.py   FeatureLSTM, FeatureGRU, FeatureTransformer
+│   ├── emg_loader.py             Data loading / LOSO & within-subject splits
+│   ├── feature_extraction.py     libemg 41-feature channel-major extractor
+│   │                             (batch_extract_features, batch_extract_split_dirs)
+│   ├── deep_learning_models.py   EEGNet, ShallowConvNet, EMG_TCN
+│   ├── feature_based_models.py   FeatureMLP
+│   ├── trainer.py                train, train_batch, evaluate
+│   ├── runners.py                run_within — within-subject DL + feature-based runner
+│   ├── housekeeping.py           loaders, fold/val splits, majority vote, results writer
+│   └── preprocessing.py          Bandpass 20–700 Hz, notch 30/50/60/90/150 Hz, resample, z-score
+│
+├── data/                         (local; was on external drive)
+│   ├── processed gestures/{train,eval}/   emg_gestures_SS_U.npz  (raw signals, N×24×1500)
+│   └── features/{train,eval}/             features_SS_flat_rep.npz (41-feat channel-major)
 │
 ├── data_preprocessing/
 │   ├── matlab/                   CSV → per-subject .mat (put_emg_driver.m)
-│   ├── preprocessing.py          Bandpass, resample, z-score
-│   └── driver.ipynb              Entry point for preprocessing
+│   └── driver.ipynb              Preprocessing entry point (Google Colab)
 │
-├── experiments/
-│   ├── within_subject/
-│   │   ├── deep_learning/        COMPLETE — 38 subjects, 3-fold CV
-│   │   └── feature_based/        Notebook ready, not run
-│   ├── cross_subject/
-│   │   ├── deep_learning/        COMPLETE — 44/44 LOSO folds, 3 models
-│   │   └── feature_based/        Notebook ready, not run
-│   ├── clustering/               24→8 channel reduction
-│   │   ├── clustering_features.ipynb
-│   │   ├── anatomical_validation.ipynb
-│   │   └── assets/               Gray's Anatomy images for overlay figure
-│   └── efficient/                8-channel models
-│       ├── deep_learning/        Notebook ready, not run
-│       └── feature_based/        Notebook ready, not run
+├── baseline.ipynb                Within/cross-subject baselines (configure PROTOCOL/APPROACH/MODEL)
+├── clustering.ipynb              Phase 3 — feature-space 24→8 channel selection
+├── efficient.ipynb               Phase 5 — 8-channel models (slices feature columns)
+├── k.ipynb                       Colab feature extraction (faster than local)
+├── test.py                       Local driver: feature extraction + run_within calls
+│
+├── scripts/                      run_clustering.py, run_efficient.py
+│
+├── weights/baseline/
+│   ├── within_dl/                per-subject .pt  (one file per subject, all 3 DL models inside)
+│   ├── within_feat/              per-subject .pt  (SVM + FeatureMLP)
+│   ├── cross_dl/                 per-subject .pt  (one per LOSO fold, all 3 DL models inside)
+│   └── cross_feat/               per-subject .pt  (SVM_W + FeatureMLP)
+├── results/baseline/
+│   └── results_baseline_{within,cross}_{DL,feature}_{model}.txt
+│       Format: header block / subject|val_acc|test_acc|epochs / summary block
+│
+├── clustering & analysis/        Phase 3/4 outputs (feat_representative_channels.npy, ...)
 │
 └── docs/
     ├── plan.txt                  Full 7-phase research plan with status
     ├── project_summary.txt       This file
-    ├── claude_report.txt         Earlier progress report
-    └── slides/                   Progress presentation
+    └── plan_session_2026-06-10.md  Latest session plan
 
 
 ================================================================================

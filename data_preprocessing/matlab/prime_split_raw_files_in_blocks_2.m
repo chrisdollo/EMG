@@ -1,4 +1,4 @@
-function result = split_raw_files_in_blocks_2(sensorMatrix)
+function result = prime_split_raw_files_in_blocks_2(sensorMatrix)
     % -----------------------------------------------------------
     % Takes in a sensor matrix (N x 25) with inactive periods zeroed out,
     % and splits into separate gesture blocks.
@@ -27,5 +27,5 @@ function result = split_raw_files_in_blocks_2(sensorMatrix)
         action_blocks{i} = V(startIdx(i):endIdx(i), :);
     end
 
-    result = action_blocks
+    result = action_blocks;
 end
