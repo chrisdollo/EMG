@@ -72,6 +72,39 @@ def _load_combined_feature_subject(train_dir, eval_dir, sid, channels=None, feat
     return X, y
 
 
+# EXPERIMENT ADDED: _stratified_sample_windows — stratified window sampler for SampledDataSVM.
+# Samples at the rep level per (subject, class), then takes all W windows for each chosen
+# rep — so every window position is always equally represented and we never iterate over
+# individual windows. Loop count: n_subjects × n_classes = ~301, not ~312k.
+# Delete this function when removing SampledDataSVM.
+def _stratified_sample_windows(cache, test_sid, n_samples, seed=42):
+    rng = np.random.RandomState(seed)
+    pool_sids = [sid for sid in sorted(cache) if sid != test_sid]
+    _X0, _y0  = cache[pool_sids[0]]
+    W         = _X0.shape[1]
+    classes   = np.unique(np.concatenate([cache[s][1] for s in pool_sids]))
+    # n_per_rep: how many reps to pick per (subject, class) bucket so that
+    # n_per_rep × W windows × n_buckets ≈ n_samples
+    n_buckets  = len(pool_sids) * len(classes)
+    n_per_rep  = max(1, n_samples // (n_buckets * W))
+    parts_X, parts_y = [], []
+    for sid in pool_sids:
+        X, y = cache[sid]                          # (N_reps, W, F)
+        for cls in classes:
+            rep_idx = np.where(y == cls)[0]
+            if len(rep_idx) == 0:
+                continue
+            n_take  = min(n_per_rep, len(rep_idx))
+            chosen  = rng.choice(rep_idx, n_take, replace=False)
+            parts_X.append(X[chosen].reshape(n_take * W, -1))  # (n_take*W, F)
+            parts_y.append(np.repeat(y[chosen], W))             # (n_take*W,)
+    Xw   = np.concatenate(parts_X, axis=0)
+    yw   = np.concatenate(parts_y).astype(np.int64)
+    perm = rng.permutation(len(yw))
+    return Xw[perm], yw[perm]
+# END EXPERIMENT: _stratified_sample_windows
+
+
 def _reps_to_windows(X_reps, y_reps):
     # _reps_to_windows: flatten (R, W, feat) reps into (R*W, feat) window samples,
     # repeating each rep's label across its W windows (for window-level training)

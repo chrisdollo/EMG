@@ -1,6 +1,6 @@
 putEMG Prime — Project Plan
 ============================
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 Goal: Build a generalizable, channel-efficient sEMG gesture recognition system using
 the putEMG dataset. The project progresses from within-subject baselines to full
@@ -10,7 +10,7 @@ for real BCI use.
 --------------------------------------------------------------------------------
 Phase 1 — Within-Subject Classification
 Entry  : runners.run_within(...) — invoked from baseline.ipynb / scripts/run_baseline.py
-Status : RUNNING (2026-06-12)
+Status : COMPLETE (2026-06-13)
 --------------------------------------------------------------------------------
 
 Reproduce and extend the original putEMG paper's within-subject classification
@@ -23,7 +23,7 @@ problem.
      Results : results/baseline/results_baseline_within_DL_{model}.txt
      - 3-fold cross-validation, 44 subjects, seed 42
      - Models: EMG_TCN, EEGNet, ShallowConvNet
-     - Status: RUNNING
+     - Status: COMPLETE
 
   b) Feature-based approach (41 single-scalar libemg features)
      Entry   : runners.run_within(type='feature_based', ...)
@@ -35,12 +35,12 @@ problem.
      - Models (WITHIN_FEATURE_MODELS):
          SVM        — RBF kernel, C=50, window-level training, majority vote
          FeatureMLP — 3-layer MLP on per-window features, majority vote
-     - Status: RUNNING
+     - Status: COMPLETE
 
 --------------------------------------------------------------------------------
 Phase 2 — Cross-Subject Generalization  (LOSO Baseline)
 Entry  : runners.run_cross(...) — invoked from baseline.ipynb / scripts/run_baseline.py
-Status : RUNNING/PENDING (2026-06-12)
+Status : COMPLETE (2026-06-13)
 --------------------------------------------------------------------------------
 
 Train models that generalize to completely unseen subjects using Leave-One-Subject-Out
@@ -51,18 +51,18 @@ Train models that generalize to completely unseen subjects using Leave-One-Subje
      Weights : weights/baseline/cross_dl/
      Results : results/baseline/results_baseline_cross_DL_{model}.txt
      - Models: EMG_TCN, EEGNet, ShallowConvNet
-     - Status: RUNNING
+     - Status: COMPLETE
 
   b) Feature-based approach
      Entry   : runners.run_cross(type='feature_based', ...)
      Weights : weights/baseline/cross_feat/
      Results : results/baseline/results_baseline_cross_feature_{model}.txt
      - Input: (26, 984) per rep — 41 features × 24 channels (channel-major)
-     - Models (CROSS_FEATURE_MODELS):
-         SVM_W      — LinearSVC, C=50, window-level training, majority vote
-                      (LinearSVC scales to ~330k windows; RBF SVC intractable at this size)
+     - Models:
+         SGD_SVM    — SGDClassifier(loss='hinge'), full ~303k window-level training, majority vote
+                      (SGD used instead of LinearSVC/RBF: O(n) vs O(n²), tractable on full pool)
          FeatureMLP — 3-layer MLP, window-level training, majority vote
-     - Status: PENDING (starts after Phase 2a completes)
+     - Status: COMPLETE
 
 --------------------------------------------------------------------------------
 Phase 3 — Channel Clustering

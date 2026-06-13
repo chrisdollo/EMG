@@ -1,6 +1,6 @@
 putEMG Prime — Project Summary
 ================================
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 ================================================================================
 OVERVIEW
@@ -97,13 +97,13 @@ Feature-Based  (src/runners.py + src/feature_based_models.py)
     FeatureMLP — 3-layer MLP on per-window 984-dim features, majority vote
 
   Cross-subject (CROSS_FEATURE_MODELS):
-    SVM_W      — LinearSVC, C=50, window-level training, majority vote
-                 (LinearSVC used instead of RBF SVC: ~330k training windows at
-                  pool size makes RBF intractable; LinearSVC scales linearly)
+    SGD_SVM    — SGDClassifier(loss='hinge'), full ~303k window-level training, majority vote
+                 (SGD used instead of LinearSVC: O(n) per pass, tractable on full pool;
+                  equivalent to linear SVM but stochastic)
     FeatureMLP — same as within-subject
 
   The protocol (window-level training + majority vote) is identical at both
-  scales; only the kernel differs due to computational constraints.
+  scales; only the optimizer differs due to scale constraints.
 
 All DL models use:
   - Adam optimizer, LR 1e-3
@@ -129,42 +129,38 @@ Cross-Subject — LOSO (Phase 2)
 
 
 ================================================================================
-RESULTS (as of 2026-06-12)
+RESULTS (as of 2026-06-13)  — ALL BASELINES COMPLETE
 ================================================================================
 
-NOTE: All baselines are being re-run from scratch with the unified result file
-format (header + subject|val_acc|test_acc|epochs + summary) and corrected
-model protocols. Numbers below are from prior runs and will be updated once
-the new runs complete.
+--- Within-Subject (3-fold CV, 44 subjects) ---
 
---- Within-Subject (3-fold CV, 44 subjects) --- RUNNING ---
-
-  Model           Mean Acc    Std
-  EMG_TCN          98.27%    ±2.83%   ← best DL
-  ShallowConvNet   95.22%    ±4.05%
-  EEGNet           93.17%    ±5.29%
-  SVM (RBF feat)   95.95%    ±4.12%   ← best feature-based; matches paper protocol
-  FeatureMLP       ~81%      —        (approximate; pending re-run)
+  Model           Mean Acc    Std        Best fold             Worst fold
+  EMG_TCN          96.44%    ±2.91%     Subj 42 (99.63%)      Subj 06 (83.99%)  ← best DL
+  ShallowConvNet   92.19%    ±4.46%     Subj 49 (96.69%)      Subj 06 (72.38%)
+  EEGNet           85.80%    ±8.28%     Subj 48 (95.66%)      Subj 06 (45.07%)
+  SVM (RBF)        96.31%    ±4.01%     Subj 24 (99.64%)      Subj 06 (76.62%)  ← best overall
+  FeatureMLP       71.82%    ±11.62%    Subj 29 (89.28%)      Subj 51 (40.61%)
   putEMG paper     ~90.00%   —
 
---- Cross-Subject LOSO (44/44 folds) --- RUNNING / PENDING ---
+--- Cross-Subject LOSO (44/44 folds) ---
 
-  Model           Mean Acc    Std       Best fold             Worst fold
-  EMG_TCN          85.01%    ±12.20%   Subj 14 (99.63%)      Subj 06 (50.00%)
-  ShallowConvNet   83.51%    ±10.34%   Subj 33 (98.91%)      Subj 26 (57.76%)
-  EEGNet           83.28%    ±11.10%   Subj 33 (98.91%)      Subj 07 (59.42%)
-  SVM_W (LinearSVC) —        —        pending (window-level, majority vote)
-  FeatureMLP        —        —        pending
+  Model           Mean Acc    Std        Best fold             Worst fold
+  EMG_TCN          84.80%    ±11.56%    Subj 53 (98.52%)      Subj 17 (55.94%)  ← best DL
+  ShallowConvNet   83.92%    ±10.13%    Subj 33 (98.18%)      Subj 26 (57.04%)
+  EEGNet           83.41%    ±11.07%    Subj 38 (98.48%)      Subj 47 (52.16%)
+  SGD_SVM          69.07%    ±14.79%    Subj 33 (92.73%)      Subj 06 (35.00%)  ← best feature
+  FeatureMLP       67.89%    ±13.47%    Subj 14 (94.10%)      Subj 06 (39.67%)
 
-  Key observations (DL, confirmed):
-  - EMG_TCN leads at 85.01%; ShallowConvNet and EEGNet nearly tied (~83%)
+  Key observations:
+  - DL models generalize well: EMG_TCN 84.80%, all three within ~1.5 pp of each other
   - ~10–12 pp std — some subjects near-perfect, others near-chance
-  - Val (~95–97%) >> Test (~83–85%): inter-subject variance dominates
-  - Subject 06 consistently hardest; Subject 33 consistently easiest
+  - Val (~91–95%) >> Test (~84%): inter-subject variance dominates
+  - Feature-based cross-subject gap: SGD_SVM 69% vs SVM within-subject 96% — large drop
+  - Subject 06 consistently hardest across all models; Subject 33 consistently easiest
 
 
 ================================================================================
-PENDING WORK
+PENDING WORK  (Phases 1 & 2 complete as of 2026-06-13)
 ================================================================================
 
 Phase 3 — Channel clustering (24 → 8)

@@ -4,6 +4,7 @@ import numpy as np
 import torch
 
 from sklearn.svm import SVC, LinearSVC
+from sklearn.linear_model import SGDClassifier   # EXPERIMENT ADDED: used by SGD_SVM
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 
@@ -23,6 +24,7 @@ from housekeeping import (
     _stratified_val_split,
     _loader,
     _write_results,
+    _stratified_sample_windows,   # EXPERIMENT ADDED: used by SampledDataSVM
 )
 
 DL_MODELS = {
@@ -230,7 +232,8 @@ def run_cross(type, FORCE_RERUN, input_folder, output_weight_folder, result_fold
               val_frac=0.10, batch_size=16, lr=1e-3, max_epochs=20, patience=5,
               min_delta=0.0, dropout=0.1, svm_c=50.0, feat_mlp_batch_size=512,
               channels=None, feature_idx=None, experiment='baseline',
-              seed=42, device=None):
+              seed=42, device=None, models=None,
+              n_sampled=20000):   # EXPERIMENT ADDED: window count for SampledDataSVM
     # run_cross: LOSO cross-subject training with per-model checkpoint subfolders.
     # Folder layout: output_weight_folder/{model_name}/{sid}.pt  (one per LOSO fold)
     #                output_weight_folder/{model_name}/final.pt  (trained on all subjects)
@@ -321,123 +324,247 @@ def run_cross(type, FORCE_RERUN, input_folder, output_weight_folder, result_fold
         n_wins = next(iter(cache.values()))[0].shape[1]
 
         # --- SVM_W (LinearSVC, window-level + majority vote) ---
-        svm_folder = os.path.join(output_weight_folder, 'SVM_W')
-        os.makedirs(svm_folder, exist_ok=True)
+        if models is None or 'SVM_W' in models:
 
-        for sid in subject_ids:
-            ckpt = os.path.join(svm_folder, f'{sid}.pt')
-            if not FORCE_RERUN and os.path.exists(ckpt):
-                print(f'[SKIP] SVM_W test subject {sid}')
-                continue
-            test_X, test_y = cache[sid]
-            pool_X, pool_y = _pool_except(cache, sid)
-            Xtr_w, ytr_w = _reps_to_windows(pool_X, pool_y)
-            Xte_w, _     = _reps_to_windows(test_X, test_y)
-            print(f'\n[SVM_W] test subject {sid}  (train={len(Xtr_w)} win  test={len(test_X)} reps)')
-            clf = make_pipeline(StandardScaler(), LinearSVC(C=svm_c, max_iter=2000))
-            clf.fit(Xtr_w, ytr_w)
-            rep_pred = _majority_vote(clf.predict(Xte_w), n_wins)
-            acc = float((rep_pred == test_y).mean())
-            print(f'  → SVM_W test acc = {acc*100:.2f}%')
-            torch.save({
-                'subject':    sid,
-                'model':      'SVM_W',
-                'mean_acc':   acc,
-                'mean_val':   None,
-                'mean_epoch': None,
-                'clf':        clf,                  # sklearn Pipeline (StandardScaler + LinearSVC)
-                'protocol':   'cross',
-                'date':       datetime.date.today().isoformat(),
-            }, ckpt)
-            _write_results(svm_folder, result_folder, type, len(subject_ids), 'SVM_W',
-                           experiment=experiment, protocol='cross', channels=channels or 24)
+            print("Getes into SVM_W ")
+            svm_folder = os.path.join(output_weight_folder, 'SVM_W')
+            os.makedirs(svm_folder, exist_ok=True)
 
-        svm_final = os.path.join(svm_folder, 'final.pt')
-        if FORCE_RERUN or not os.path.exists(svm_final):
-            all_X = np.concatenate([X for X, _ in cache.values()], axis=0)
-            all_y = np.concatenate([y for _, y in cache.values()], axis=0)
-            Xtr_w, ytr_w = _reps_to_windows(all_X, all_y)
-            print(f'\n[SVM_W] Training final model on all {len(subject_ids)} subjects '
-                  f'({len(Xtr_w)} windows)...')
-            clf = make_pipeline(StandardScaler(), LinearSVC(C=svm_c, max_iter=2000))
-            clf.fit(Xtr_w, ytr_w)
-            torch.save({
-                'subject':    'final',
-                'model':      'SVM_W',
-                'clf':        clf,
-                'n_subjects': len(subject_ids),
-                'protocol':   'cross',
-                'date':       datetime.date.today().isoformat(),
-            }, svm_final)
-            print('  → SVM_W final model saved')
+            for sid in subject_ids:
+                ckpt = os.path.join(svm_folder, f'{sid}.pt')
+                if not FORCE_RERUN and os.path.exists(ckpt):
+                    print(f'[SKIP] SVM_W test subject {sid}')
+                    continue
+                test_X, test_y = cache[sid]
+                pool_X, pool_y = _pool_except(cache, sid)
+                Xtr_w, ytr_w = _reps_to_windows(pool_X, pool_y)
+                Xte_w, _     = _reps_to_windows(test_X, test_y)
+                print(f'\n[SVM_W] test subject {sid}  (train={len(Xtr_w)} win  test={len(test_X)} reps)')
+                clf = make_pipeline(StandardScaler(), LinearSVC(C=svm_c, max_iter=2000, dual=False))
+                clf.fit(Xtr_w, ytr_w)
+                rep_pred = _majority_vote(clf.predict(Xte_w), n_wins)
+                acc = float((rep_pred == test_y).mean())
+                print(f'  → SVM_W test acc = {acc*100:.2f}%')
+                torch.save({
+                    'subject':    sid,
+                    'model':      'SVM_W',
+                    'mean_acc':   acc,
+                    'mean_val':   None,
+                    'mean_epoch': None,
+                    'clf':        clf,
+                    'protocol':   'cross',
+                    'date':       datetime.date.today().isoformat(),
+                }, ckpt)
+                _write_results(svm_folder, result_folder, type, len(subject_ids), 'SVM_W',
+                               experiment=experiment, protocol='cross', channels=channels or 24)
+
+            svm_final = os.path.join(svm_folder, 'final.pt')
+            if FORCE_RERUN or not os.path.exists(svm_final):
+                all_X = np.concatenate([X for X, _ in cache.values()], axis=0)
+                all_y = np.concatenate([y for _, y in cache.values()], axis=0)
+                Xtr_w, ytr_w = _reps_to_windows(all_X, all_y)
+                print(f'\n[SVM_W] Training final model on all {len(subject_ids)} subjects '
+                      f'({len(Xtr_w)} windows)...')
+                clf = make_pipeline(StandardScaler(), LinearSVC(C=svm_c, max_iter=2000, dual=False))
+                clf.fit(Xtr_w, ytr_w)
+                torch.save({
+                    'subject':    'final',
+                    'model':      'SVM_W',
+                    'clf':        clf,
+                    'n_subjects': len(subject_ids),
+                    'protocol':   'cross',
+                    'date':       datetime.date.today().isoformat(),
+                }, svm_final)
+                print('  → SVM_W final model saved')
 
         # --- FeatureMLP (window-level + majority vote) ---
-        mlp_folder = os.path.join(output_weight_folder, 'FeatureMLP')
-        os.makedirs(mlp_folder, exist_ok=True)
+        if models is None or 'FeatureMLP' in models:
 
-        for sid in subject_ids:
-            ckpt = os.path.join(mlp_folder, f'{sid}.pt')
-            if not FORCE_RERUN and os.path.exists(ckpt):
-                print(f'[SKIP] FeatureMLP test subject {sid}')
-                continue
-            test_X, test_y = cache[sid]
-            pool_X, pool_y = _pool_except(cache, sid)
-            tr_rel, val_rel = _stratified_val_split(pool_y, val_frac, seed)
-            Xtr_w, ytr_w   = _reps_to_windows(pool_X[tr_rel],  pool_y[tr_rel])
-            Xval_w, yval_w = _reps_to_windows(pool_X[val_rel], pool_y[val_rel])
-            Xte_w, _       = _reps_to_windows(test_X, test_y)
-            train_loader = _loader(Xtr_w,  ytr_w,  feat_mlp_batch_size, True)
-            val_loader   = _loader(Xval_w, yval_w, feat_mlp_batch_size, False)
-            print(f'\n[FeatureMLP] test subject {sid}  '
-                  f'(train={len(Xtr_w)} win  val={len(Xval_w)} win  test={len(test_X)} reps)')
-            model = FeatureMLP(input_size=test_X.shape[2], dropout_rate=dropout).to(device)
-            best_state, best_val, best_epoch = train(
-                model, train_loader, val_loader, device,
-                max_epochs=max_epochs, patience=patience, min_delta=min_delta, lr=lr,
-            )
-            model.load_state_dict(best_state)
-            rep_pred = _majority_vote(_mlp_window_preds(model, Xte_w, device), n_wins)
-            acc = float((rep_pred == test_y).mean())
-            print(f'  → FeatureMLP test acc = {acc*100:.2f}%  (val {best_val*100:.2f}% @ ep {best_epoch})')
-            torch.save({
-                'subject':    sid,
-                'model':      'FeatureMLP',
-                'mean_acc':   float(acc),
-                'mean_val':   float(best_val),
-                'mean_epoch': float(best_epoch),
-                'state_dict': _cpu_state(best_state),
-                'protocol':   'cross',
-                'date':       datetime.date.today().isoformat(),
-            }, ckpt)
-            _write_results(mlp_folder, result_folder, type, len(subject_ids), 'FeatureMLP',
-                           experiment=experiment, protocol='cross', channels=channels or 24)
+            mlp_folder = os.path.join(output_weight_folder, 'FeatureMLP')
+            os.makedirs(mlp_folder, exist_ok=True)
 
-        mlp_final = os.path.join(mlp_folder, 'final.pt')
-        if FORCE_RERUN or not os.path.exists(mlp_final):
-            all_X = np.concatenate([X for X, _ in cache.values()], axis=0)
-            all_y = np.concatenate([y for _, y in cache.values()], axis=0)
-            tr_rel, val_rel = _stratified_val_split(all_y, val_frac, seed)
-            Xtr_w, ytr_w   = _reps_to_windows(all_X[tr_rel], all_y[tr_rel])
-            Xval_w, yval_w = _reps_to_windows(all_X[val_rel], all_y[val_rel])
-            train_loader = _loader(Xtr_w,  ytr_w,  feat_mlp_batch_size, True)
-            val_loader   = _loader(Xval_w, yval_w, feat_mlp_batch_size, False)
-            print(f'\n[FeatureMLP] Training final model on all {len(subject_ids)} subjects...')
-            model = FeatureMLP(input_size=all_X.shape[2], dropout_rate=dropout).to(device)
-            best_state, best_val, best_epoch = train(
-                model, train_loader, val_loader, device,
-                max_epochs=max_epochs, patience=patience, min_delta=min_delta, lr=lr,
-            )
-            torch.save({
-                'subject':    'final',
-                'model':      'FeatureMLP',
-                'mean_val':   float(best_val),
-                'mean_epoch': float(best_epoch),
-                'state_dict': _cpu_state(best_state),
-                'n_subjects': len(subject_ids),
-                'protocol':   'cross',
-                'date':       datetime.date.today().isoformat(),
-            }, mlp_final)
-            print(f'  → FeatureMLP final model val {best_val*100:.2f}% @ epoch {best_epoch}')
+            for sid in subject_ids:
+                ckpt = os.path.join(mlp_folder, f'{sid}.pt')
+                if not FORCE_RERUN and os.path.exists(ckpt):
+                    print(f'[SKIP] FeatureMLP test subject {sid}')
+                    continue
+                test_X, test_y = cache[sid]
+                pool_X, pool_y = _pool_except(cache, sid)
+                tr_rel, val_rel = _stratified_val_split(pool_y, val_frac, seed)
+                Xtr_w, ytr_w   = _reps_to_windows(pool_X[tr_rel],  pool_y[tr_rel])
+                Xval_w, yval_w = _reps_to_windows(pool_X[val_rel], pool_y[val_rel])
+                Xte_w, _       = _reps_to_windows(test_X, test_y)
+                train_loader = _loader(Xtr_w,  ytr_w,  feat_mlp_batch_size, True)
+                val_loader   = _loader(Xval_w, yval_w, feat_mlp_batch_size, False)
+                print(f'\n[FeatureMLP] test subject {sid}  '
+                      f'(train={len(Xtr_w)} win  val={len(Xval_w)} win  test={len(test_X)} reps)')
+                model = FeatureMLP(input_size=test_X.shape[2], dropout_rate=dropout).to(device)
+                best_state, best_val, best_epoch = train(
+                    model, train_loader, val_loader, device,
+                    max_epochs=max_epochs, patience=patience, min_delta=min_delta, lr=lr,
+                )
+                model.load_state_dict(best_state)
+                rep_pred = _majority_vote(_mlp_window_preds(model, Xte_w, device), n_wins)
+                acc = float((rep_pred == test_y).mean())
+                print(f'  → FeatureMLP test acc = {acc*100:.2f}%  (val {best_val*100:.2f}% @ ep {best_epoch})')
+                torch.save({
+                    'subject':    sid,
+                    'model':      'FeatureMLP',
+                    'mean_acc':   float(acc),
+                    'mean_val':   float(best_val),
+                    'mean_epoch': float(best_epoch),
+                    'state_dict': _cpu_state(best_state),
+                    'protocol':   'cross',
+                    'date':       datetime.date.today().isoformat(),
+                }, ckpt)
+                _write_results(mlp_folder, result_folder, type, len(subject_ids), 'FeatureMLP',
+                               experiment=experiment, protocol='cross', channels=channels or 24)
+
+            mlp_final = os.path.join(mlp_folder, 'final.pt')
+            if FORCE_RERUN or not os.path.exists(mlp_final):
+                all_X = np.concatenate([X for X, _ in cache.values()], axis=0)
+                all_y = np.concatenate([y for _, y in cache.values()], axis=0)
+                tr_rel, val_rel = _stratified_val_split(all_y, val_frac, seed)
+                Xtr_w, ytr_w   = _reps_to_windows(all_X[tr_rel], all_y[tr_rel])
+                Xval_w, yval_w = _reps_to_windows(all_X[val_rel], all_y[val_rel])
+                train_loader = _loader(Xtr_w,  ytr_w,  feat_mlp_batch_size, True)
+                val_loader   = _loader(Xval_w, yval_w, feat_mlp_batch_size, False)
+                print(f'\n[FeatureMLP] Training final model on all {len(subject_ids)} subjects...')
+                model = FeatureMLP(input_size=all_X.shape[2], dropout_rate=dropout).to(device)
+                best_state, best_val, best_epoch = train(
+                    model, train_loader, val_loader, device,
+                    max_epochs=max_epochs, patience=patience, min_delta=min_delta, lr=lr,
+                )
+                torch.save({
+                    'subject':    'final',
+                    'model':      'FeatureMLP',
+                    'mean_val':   float(best_val),
+                    'mean_epoch': float(best_epoch),
+                    'state_dict': _cpu_state(best_state),
+                    'n_subjects': len(subject_ids),
+                    'protocol':   'cross',
+                    'date':       datetime.date.today().isoformat(),
+                }, mlp_final)
+                print(f'  → FeatureMLP final model val {best_val*100:.2f}% @ epoch {best_epoch}')
+
+        # EXPERIMENT ADDED: MeanWindowSVM — mean-aggregate 26 windows per rep before SVM.
+        # Training set: ~12k rep-level samples instead of ~303k window-level samples.
+        # Train and test both use the mean vector; no majority vote needed.
+        # Delete this block (and its folder/results) to remove MeanWindowSVM.
+        if models is None or 'MeanWindowSVM' in models:
+            mean_svm_folder = os.path.join(output_weight_folder, 'MeanWindowSVM')
+            os.makedirs(mean_svm_folder, exist_ok=True)
+
+            for sid in subject_ids:
+                ckpt = os.path.join(mean_svm_folder, f'{sid}.pt')
+                if not FORCE_RERUN and os.path.exists(ckpt):
+                    print(f'[SKIP] MeanWindowSVM test subject {sid}')
+                    continue
+                test_X, test_y = cache[sid]        # (N_reps, 26, feat)
+                pool_X, pool_y = _pool_except(cache, sid)
+                Xtr = pool_X.mean(axis=1)          # (N_pool_reps, feat) — mean over 26 windows
+                Xte = test_X.mean(axis=1)          # (N_test_reps, feat)
+                print(f'\n[MeanWindowSVM] test subject {sid}  (train={len(Xtr)} reps  test={len(Xte)} reps)')
+                clf = make_pipeline(StandardScaler(), LinearSVC(C=svm_c, max_iter=2000, dual=False))
+                clf.fit(Xtr, pool_y)
+                pred = clf.predict(Xte)
+                acc  = float((pred == test_y).mean())
+                print(f'  → MeanWindowSVM test acc = {acc*100:.2f}%')
+                torch.save({
+                    'subject':    sid,
+                    'model':      'MeanWindowSVM',
+                    'mean_acc':   acc,
+                    'mean_val':   None,
+                    'mean_epoch': None,
+                    'clf':        clf,
+                    'protocol':   'cross',
+                    'date':       datetime.date.today().isoformat(),
+                }, ckpt)
+                _write_results(mean_svm_folder, result_folder, type, len(subject_ids), 'MeanWindowSVM',
+                               experiment=experiment, protocol='cross', channels=channels or 24)
+        # END EXPERIMENT: MeanWindowSVM
+
+        # EXPERIMENT ADDED: SampledDataSVM — stratified window sampling before SVM.
+        # Samples n_sampled windows stratified by (subject, class, window_position) to
+        # keep training set tractable while preserving temporal and subject diversity.
+        # Model name encodes the sample count (e.g. SampledDataSVM_50k) so multiple
+        # runs with different n_sampled produce separate folders and result files.
+        # Test time: window-level predict + majority vote (consistent with SVM_W).
+        # Delete this block (and its folder/results) to remove SampledDataSVM.
+        if models is None or 'SampledDataSVM' in models:
+            _k          = n_sampled // 1000
+            _model_name = f'SampledDataSVM_{_k}k'
+            sampled_svm_folder = os.path.join(output_weight_folder, _model_name)
+            os.makedirs(sampled_svm_folder, exist_ok=True)
+
+            for sid in subject_ids:
+                ckpt = os.path.join(sampled_svm_folder, f'{sid}.pt')
+                if not FORCE_RERUN and os.path.exists(ckpt):
+                    print(f'[SKIP] {_model_name} test subject {sid}')
+                    continue
+                test_X, test_y = cache[sid]
+                Xtr_w, ytr_w = _stratified_sample_windows(cache, sid, n_sampled, seed)
+                Xte_w, _     = _reps_to_windows(test_X, test_y)
+                print(f'\n[{_model_name}] test subject {sid}  '
+                      f'(train={len(Xtr_w)} win sampled  test={len(test_X)} reps)')
+                clf = make_pipeline(StandardScaler(), LinearSVC(C=svm_c, max_iter=2000, dual=False))
+                clf.fit(Xtr_w, ytr_w)
+                rep_pred = _majority_vote(clf.predict(Xte_w), n_wins)
+                acc      = float((rep_pred == test_y).mean())
+                print(f'  → {_model_name} test acc = {acc*100:.2f}%')
+                torch.save({
+                    'subject':    sid,
+                    'model':      _model_name,
+                    'mean_acc':   acc,
+                    'mean_val':   None,
+                    'mean_epoch': None,
+                    'clf':        clf,
+                    'n_sampled':  n_sampled,
+                    'protocol':   'cross',
+                    'date':       datetime.date.today().isoformat(),
+                }, ckpt)
+                _write_results(sampled_svm_folder, result_folder, type, len(subject_ids), _model_name,
+                               experiment=experiment, protocol='cross', channels=channels or 24)
+        # END EXPERIMENT: SampledDataSVM
+
+        # EXPERIMENT ADDED: SGD_SVM — full window-level training with SGDClassifier(loss='hinge').
+        # Equivalent to SVM_W but uses stochastic gradient descent instead of liblinear,
+        # making it tractable on the full ~303k training windows without sampling.
+        # Delete this block (and its folder/results) to remove SGD_SVM.
+        if models is None or 'SGD_SVM' in models:
+            print("only gets here")
+            sgd_folder = os.path.join(output_weight_folder, 'SGD_SVM')
+            os.makedirs(sgd_folder, exist_ok=True)
+
+            for sid in subject_ids:
+                ckpt = os.path.join(sgd_folder, f'{sid}.pt')
+                if not FORCE_RERUN and os.path.exists(ckpt):
+                    print(f'[SKIP] SGD_SVM test subject {sid}')
+                    continue
+                test_X, test_y = cache[sid]
+                pool_X, pool_y = _pool_except(cache, sid)
+                Xtr_w, ytr_w = _reps_to_windows(pool_X, pool_y)
+                Xte_w, _     = _reps_to_windows(test_X, test_y)
+                print(f'\n[SGD_SVM] test subject {sid}  (train={len(Xtr_w)} win  test={len(test_X)} reps)')
+                clf = make_pipeline(StandardScaler(),
+                                    SGDClassifier(loss='hinge', max_iter=200, random_state=42, n_jobs=-1))
+                clf.fit(Xtr_w, ytr_w)
+                rep_pred = _majority_vote(clf.predict(Xte_w), n_wins)
+                acc      = float((rep_pred == test_y).mean())
+                print(f'  → SGD_SVM test acc = {acc*100:.2f}%')
+                torch.save({
+                    'subject':    sid,
+                    'model':      'SGD_SVM',
+                    'mean_acc':   acc,
+                    'mean_val':   None,
+                    'mean_epoch': None,
+                    'clf':        clf,
+                    'protocol':   'cross',
+                    'date':       datetime.date.today().isoformat(),
+                }, ckpt)
+                _write_results(sgd_folder, result_folder, type, len(subject_ids), 'SGD_SVM',
+                               experiment=experiment, protocol='cross', channels=channels or 24)
+        # END EXPERIMENT: SGD_SVM
 
     else:
         raise ValueError(f"type must be 'deep_learning' or 'feature_based', got {type!r}")

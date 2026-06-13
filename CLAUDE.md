@@ -138,30 +138,28 @@ For within-subject (3-fold CV), val_acc and epochs are means across the 3 folds.
 
 ---
 
-## Results (as of 2026-06-12) — RUNNING
-
-All baselines are being re-run from scratch. Numbers below are from prior runs.
+## Results (as of 2026-06-13) — ALL BASELINES COMPLETE
 
 ### Within-Subject (3-fold CV, 44 subjects)
 
 | Model | Mean Acc | Std | Notes |
 |-------|----------|-----|-------|
-| **EMG_TCN** | **98.27%** | ±2.83% | best DL |
-| ShallowConvNet | 95.22% | ±4.05% | |
-| EEGNet | 93.17% | ±5.29% | |
-| **SVM** (RBF, window-level) | **~96%** | ~±4% | best feature-based; putEMG paper protocol |
-| FeatureMLP | ~82% | — | per-fold instability on some subjects |
+| **EMG_TCN** | **96.44%** | ±2.91% | best DL |
+| ShallowConvNet | 92.19% | ±4.46% | |
+| EEGNet | 85.80% | ±8.28% | |
+| **SVM** (RBF, window-level) | **96.31%** | ±4.01% | best feature-based; putEMG paper protocol |
+| FeatureMLP | 71.82% | ±11.62% | per-fold instability on some subjects |
 | putEMG paper | ~90% | — | benchmark |
 
 ### Cross-Subject LOSO (44/44 folds)
 
 | Model | Mean Acc | Std | Best | Worst |
 |-------|----------|-----|------|-------|
-| **EMG_TCN** | **85.01%** | ±12.20% | Subj 14 (99.63%) | Subj 06 (50.00%) |
-| ShallowConvNet | 83.51% | ±10.34% | Subj 33 (98.91%) | Subj 26 (57.76%) |
-| EEGNet | 83.28% | ±11.10% | Subj 33 (98.91%) | Subj 07 (59.42%) |
-| SVM_W (LinearSVC) | pending | — | — | — |
-| FeatureMLP | pending | — | — | — |
+| **EMG_TCN** | **84.80%** | ±11.56% | Subj 53 (98.52%) | Subj 17 (55.94%) |
+| ShallowConvNet | 83.92% | ±10.13% | Subj 33 (98.18%) | Subj 26 (57.04%) |
+| EEGNet | 83.41% | ±11.07% | Subj 38 (98.48%) | Subj 47 (52.16%) |
+| **SGD_SVM** (hinge, full windows) | **69.07%** | ±14.79% | Subj 33 (92.73%) | Subj 06 (35.00%) |
+| FeatureMLP | 67.89% | ±13.47% | Subj 14 (94.10%) | Subj 06 (39.67%) |
 
 ---
 
@@ -169,10 +167,10 @@ All baselines are being re-run from scratch. Numbers below are from prior runs.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1a | Within-subject DL | **RUNNING** |
-| 1b | Within-subject feature-based | **RUNNING** |
-| 2a | Cross-subject LOSO DL | **RUNNING** |
-| 2b | Cross-subject LOSO feature-based (SVM_W LinearSVC + FeatureMLP) | **PENDING** |
+| 1a | Within-subject DL | **COMPLETE** |
+| 1b | Within-subject feature-based | **COMPLETE** |
+| 2a | Cross-subject LOSO DL | **COMPLETE** |
+| 2b | Cross-subject LOSO feature-based (SGD_SVM + FeatureMLP) | **COMPLETE** |
 | 3 | Feature-space channel clustering (24→8) | Not started |
 | 4 | Anatomical validation of clusters | Not started |
 | 5a | Reduced-channel DL (8 channels) | Not started |
