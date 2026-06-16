@@ -1,0 +1,217 @@
+{
+  "date": "2026-06-14",
+  "n_subjects": 44,
+  "n_windows": 310934,
+  "method": "window-level Pearson correlation \u2192 agglomerative (average linkage) \u2192 highest-MI representative",
+  "n_clusters": 8,
+  "selected_channels": [
+    0,
+    1,
+    5,
+    7,
+    14,
+    16,
+    19,
+    22
+  ],
+  "selected_labels": [
+    "E0\u00b0",
+    "E45\u00b0",
+    "E225\u00b0",
+    "E315\u00b0",
+    "M270\u00b0",
+    "W0\u00b0",
+    "W135\u00b0",
+    "W270\u00b0"
+  ],
+  "cluster_labels_per_ch": [
+    1,
+    3,
+    3,
+    3,
+    3,
+    2,
+    4,
+    4,
+    1,
+    1,
+    3,
+    3,
+    2,
+    2,
+    6,
+    6,
+    5,
+    5,
+    5,
+    0,
+    0,
+    0,
+    7,
+    7
+  ],
+  "silhouette_at_k8": 0.24933,
+  "best_silhouette_k": 7,
+  "silhouette_scores": {
+    "4": 0.272813,
+    "5": 0.274439,
+    "6": 0.278355,
+    "7": 0.282584,
+    "8": 0.24933,
+    "9": 0.219196,
+    "10": 0.20569,
+    "11": 0.19102,
+    "12": 0.176741
+  },
+  "clusters": [
+    {
+      "cluster_id": 0,
+      "members": [
+        19,
+        20,
+        21
+      ],
+      "member_labels": [
+        "W135\u00b0",
+        "W180\u00b0",
+        "W225\u00b0"
+      ],
+      "representative": 19,
+      "rep_label": "W135\u00b0",
+      "rep_ring": "Wrist",
+      "rep_angle_deg": 135,
+      "rep_mi": 0.071901
+    },
+    {
+      "cluster_id": 1,
+      "members": [
+        0,
+        8,
+        9
+      ],
+      "member_labels": [
+        "E0\u00b0",
+        "M0\u00b0",
+        "M45\u00b0"
+      ],
+      "representative": 0,
+      "rep_label": "E0\u00b0",
+      "rep_ring": "Elbow",
+      "rep_angle_deg": 0,
+      "rep_mi": 0.088715
+    },
+    {
+      "cluster_id": 2,
+      "members": [
+        5,
+        12,
+        13
+      ],
+      "member_labels": [
+        "E225\u00b0",
+        "M180\u00b0",
+        "M225\u00b0"
+      ],
+      "representative": 5,
+      "rep_label": "E225\u00b0",
+      "rep_ring": "Elbow",
+      "rep_angle_deg": 225,
+      "rep_mi": 0.069867
+    },
+    {
+      "cluster_id": 3,
+      "members": [
+        1,
+        2,
+        3,
+        4,
+        10,
+        11
+      ],
+      "member_labels": [
+        "E45\u00b0",
+        "E90\u00b0",
+        "E135\u00b0",
+        "E180\u00b0",
+        "M90\u00b0",
+        "M135\u00b0"
+      ],
+      "representative": 1,
+      "rep_label": "E45\u00b0",
+      "rep_ring": "Elbow",
+      "rep_angle_deg": 45,
+      "rep_mi": 0.091789
+    },
+    {
+      "cluster_id": 4,
+      "members": [
+        6,
+        7
+      ],
+      "member_labels": [
+        "E270\u00b0",
+        "E315\u00b0"
+      ],
+      "representative": 7,
+      "rep_label": "E315\u00b0",
+      "rep_ring": "Elbow",
+      "rep_angle_deg": 315,
+      "rep_mi": 0.071829
+    },
+    {
+      "cluster_id": 5,
+      "members": [
+        16,
+        17,
+        18
+      ],
+      "member_labels": [
+        "W0\u00b0",
+        "W45\u00b0",
+        "W90\u00b0"
+      ],
+      "representative": 16,
+      "rep_label": "W0\u00b0",
+      "rep_ring": "Wrist",
+      "rep_angle_deg": 0,
+      "rep_mi": 0.080043
+    },
+    {
+      "cluster_id": 6,
+      "members": [
+        14,
+        15
+      ],
+      "member_labels": [
+        "M270\u00b0",
+        "M315\u00b0"
+      ],
+      "representative": 14,
+      "rep_label": "M270\u00b0",
+      "rep_ring": "Middle",
+      "rep_angle_deg": 270,
+      "rep_mi": 0.069554
+    },
+    {
+      "cluster_id": 7,
+      "members": [
+        22,
+        23
+      ],
+      "member_labels": [
+        "W270\u00b0",
+        "W315\u00b0"
+      ],
+      "representative": 22,
+      "rep_label": "W270\u00b0",
+      "rep_ring": "Wrist",
+      "rep_angle_deg": 270,
+      "rep_mi": 0.065957
+    }
+  ],
+  "ring_coverage": {
+    "Elbow": 4,
+    "Middle": 1,
+    "Wrist": 3
+  }
+}
