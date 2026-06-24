@@ -138,28 +138,35 @@ For within-subject (3-fold CV), val_acc and epochs are means across the 3 folds.
 
 ---
 
-## Results (as of 2026-06-13) — ALL BASELINES COMPLETE
+## Results (as of 2026-06-16) — PHASES 1–3 AND 5 COMPLETE
 
 ### Within-Subject (3-fold CV, 44 subjects)
 
-| Model | Mean Acc | Std | Notes |
-|-------|----------|-----|-------|
-| **EMG_TCN** | **96.44%** | ±2.91% | best DL |
-| ShallowConvNet | 92.19% | ±4.46% | |
-| EEGNet | 85.80% | ±8.28% | |
-| **SVM** (RBF, window-level) | **96.31%** | ±4.01% | best feature-based; putEMG paper protocol |
-| FeatureMLP | 71.82% | ±11.62% | per-fold instability on some subjects |
-| putEMG paper | ~90% | — | benchmark |
+| Model | 24-ch baseline | 8-ch efficient | Δ | Notes |
+|-------|---------------|---------------|---|-------|
+| **EMG_TCN** | **96.44%** ±2.91% | **95.00%** ±4.43% | −1.44% | best DL |
+| ShallowConvNet | 92.19% ±4.46% | 89.00% ±6.37% | −3.19% | |
+| EEGNet | 85.80% ±8.28% | 81.39% ±7.39% | −4.41% | |
+| **SVM** (RBF) | **96.31%** ±4.01% | **93.93%** ±5.29% | −2.38% | best feature-based |
+| FeatureMLP | 71.82% ±11.62% | 64.32% ±11.40% | −7.50% | |
+| putEMG paper | ~90% | — | — | benchmark |
 
 ### Cross-Subject LOSO (44/44 folds)
 
-| Model | Mean Acc | Std | Best | Worst |
-|-------|----------|-----|------|-------|
-| **EMG_TCN** | **84.80%** | ±11.56% | Subj 53 (98.52%) | Subj 17 (55.94%) |
-| ShallowConvNet | 83.92% | ±10.13% | Subj 33 (98.18%) | Subj 26 (57.04%) |
-| EEGNet | 83.41% | ±11.07% | Subj 38 (98.48%) | Subj 47 (52.16%) |
-| **SGD_SVM** (hinge, full windows) | **69.07%** | ±14.79% | Subj 33 (92.73%) | Subj 06 (35.00%) |
-| FeatureMLP | 67.89% | ±13.47% | Subj 14 (94.10%) | Subj 06 (39.67%) |
+| Model | 24-ch baseline | 8-ch efficient | Δ | Notes |
+|-------|---------------|---------------|---|-------|
+| **EMG_TCN** | **84.80%** ±11.56% | **83.37%** ±11.83% | −1.43% | best DL |
+| ShallowConvNet | 83.92% ±10.13% | 80.42% ±10.73% | −3.50% | |
+| EEGNet | 83.41% ±11.07% | 80.02% ±11.06% | −3.39% | |
+| **SGD_SVM** | **69.07%** ±14.79% | **62.59%** ±10.83% | −6.48% | best feature-based |
+| FeatureMLP | 67.89% ±13.47% | 53.34% ±10.67% | −14.55% | most sensitive to channel reduction |
+
+EMG_TCN retains 98.3–98.5% of its accuracy at one-third the electrode count.
+
+### Channel Selection (Phase 3)
+Selected channels: `[0, 1, 5, 7, 14, 16, 19, 22]` → E0°, E45°, E225°, E315°, M270°, W0°, W135°, W270°
+Method: window-level Pearson correlation → agglomerative clustering (k=8, average linkage) → highest-MI representative per cluster.
+See `clustering & analysis/clustering_results.json` and `docs/project_summary.txt` for full methodology.
 
 ---
 
@@ -171,16 +178,12 @@ For within-subject (3-fold CV), val_acc and epochs are means across the 3 folds.
 | 1b | Within-subject feature-based | **COMPLETE** |
 | 2a | Cross-subject LOSO DL | **COMPLETE** |
 | 2b | Cross-subject LOSO feature-based (SGD_SVM + FeatureMLP) | **COMPLETE** |
-| 3 | Feature-space channel clustering (24→8) | Not started |
+| 3 | Feature-space channel clustering (24→8) | **COMPLETE** |
 | 4 | Anatomical validation of clusters | Not started |
-| 5a | Reduced-channel DL (8 channels) | Not started |
-| 5b | Reduced-channel feature-based (8 channels) | Not started |
+| 5a | Reduced-channel DL (8 channels, within + LOSO) | **COMPLETE** |
+| 5b | Reduced-channel feature-based (8 channels, within + LOSO) | **COMPLETE** |
 | 6 | Per-subject per-class accuracy analysis | Not started |
 | 7 | Real-time data collection | Future |
-
-### Phase 3 & 5 Dependency Chain
-1. `clustering.ipynb` → `clustering & analysis/feat_representative_channels.npy`
-2. `efficient.ipynb` → loads channel indices, slices `X[:, :, channels, :]` for DL or `X[:, :, channels, :]` for features (41×8=328/window)
 
 ---
 

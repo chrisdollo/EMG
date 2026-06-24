@@ -1,26 +1,171 @@
-# EMG Gesture Recognition — putEMG Dataset
+# EMG Gesture Recognition — putEMG Prime
 
-Two parallel pipelines for hand gesture recognition from surface electromyography (sEMG) signals, built on the [putEMG dataset](https://biolab.put.poznan.pl/putemg-dataset/):
-
-- **Deep learning** — CNN/TCN models on raw time-series (input: 1 × 24 × 1500)
-- **Feature-based** — 41 single-scalar libemg features per channel × 24 channels = 984-dim per window, SVM / FeatureMLP
-
-Each pipeline is evaluated under two protocols: **within-subject** (3-fold CV per subject) and **cross-subject** (LOSO — leave-one-subject-out).
+sEMG hand gesture recognition on the [putEMG dataset](https://biolab.put.poznan.pl/putemg-dataset/) with two parallel classification pipelines evaluated across within-subject and cross-subject protocols, followed by principled channel reduction from 24 to 8 electrodes.
 
 ---
 
 ## Dataset
 
-The **putEMG** dataset ([Kaczmarek et al., 2019](https://www.mdpi.com/1424-8220/19/16/3548)) is a public sEMG benchmark from Poznan University of Technology.
+The **putEMG** dataset ([Kaczmarek et al., 2019](https://doi.org/10.3390/s19163548)) is a public sEMG benchmark from Poznan University of Technology.
 
 | Property      | Value                                                   |
 |---------------|---------------------------------------------------------|
 | Subjects      | 44 able-bodied participants                             |
 | Electrodes    | 24 sEMG channels (3 rings × 8 electrodes, 45° spacing) |
+| Rings         | Elbow (ch 0–7), Middle (ch 8–15), Wrist (ch 16–23)     |
 | Sampling rate | 5120 Hz                                                 |
 | Gestures      | 7 active: G1, G2, G3, G6, G7, G8, G9                   |
-| Repetitions   | ~40 per gesture per subject (2 sessions, ~280 total)    |
-| File format   | CSV per recording session                               |
+| Repetitions   | ~280 per subject across 2 recording sessions            |
+
+---
+
+## How to Run
+
+All experiments are driven by runner scripts in `scripts/`. Each script exposes named functions that can be called individually or sequenced. Checkpointing is built in — safe to interrupt and resume.
+
+### 1. Preprocessing
+
+```bash
+# MATLAB: CSV → per-subject .mat
+run('data_preprocessing/matlab/put_emg_driver.m')
+
+# Python: bandpass / notch / resample / z-score → .npz
+# Run data_preprocessing/driver.ipynb (Colab or local)
+
+# Feature extraction: 41 libemg features × 24 channels → flat .npz
+python -c "import sys; sys.path.insert(0, 'src'); from feature_extraction import batch_extract_features; batch_extract_features()"
+# (or run src/feature_extraction.py directly)
+```
+
+### 2. Baselines (`scripts/run_baseline.py`)
+
+```python
+from scripts.run_baseline import *   # or edit and run directly
+
+runners.run_within(type='deep_learning',  ...)  # EEGNet, ShallowConvNet, EMG_TCN
+runners.run_within(type='feature_based',  ...)  # SVM (RBF), FeatureMLP
+runners.run_cross( type='deep_learning',  ...)  # LOSO — EEGNet, ShallowConvNet, EMG_TCN
+runners.run_cross( type='feature_based',  ...)  # LOSO — SGD_SVM, FeatureMLP
+```
+
+```bash
+python scripts/run_baseline.py
+```
+
+Weights → `weights/baseline/{within_dl,within_feat,cross_dl,cross_feat}/{model}/{sid}.pt`
+Results → `results/baseline/results_baseline_{within,cross}_{DL,feature}_{model}.txt`
+
+### 3. Channel Clustering — Phase 3 (`scripts/run_clustering.py`)
+
+Computes the 24×24 inter-channel correlation matrix across all ~311k classification
+windows, applies agglomerative clustering (k=8), and selects the highest-MI
+representative per cluster.
+
+```bash
+python scripts/run_clustering.py
+```
+
+Outputs → `clustering & analysis/` (`.npy` arrays + `clustering_results.json` + plots)
+
+### 4. Efficient 8-Channel Models — Phase 5 (`scripts/run_efficient.py`)
+
+Loads the 8 selected channels from `clustering_results.json` and retrains all
+baseline models restricted to those channels only.
+
+```python
+from scripts.run_efficient import *
+
+run_within_dl()    # within-subject: EEGNet, ShallowConvNet, EMG_TCN
+run_within_feat()  # within-subject: SVM (RBF), FeatureMLP
+run_cross_dl()     # LOSO: EEGNet, ShallowConvNet, EMG_TCN
+run_cross_feat()   # LOSO: SGD_SVM, FeatureMLP
+```
+
+```bash
+python scripts/run_efficient.py   # runs all four sequentially
+```
+
+Weights → `weights/efficient/{within_dl,within_feat,cross_dl,cross_feat}/{model}/{sid}.pt`
+Results → `results/efficient/results_efficient_{within,cross}_{DL,feature}_{model}.txt`
+
+---
+
+## Results
+
+### Channel Selection (Phase 3)
+
+Window-level Pearson correlation clustering (k=8, average linkage) selects **8 electrodes** covering all three forearm rings:
+
+| Selected channels (0-indexed) | Labels |
+|-------------------------------|--------|
+| 0, 1, 5, 7, 14, 16, 19, 22   | E0°, E45°, E225°, E315°, M270°, W0°, W135°, W270° |
+
+Ring coverage: **Elbow 4 · Middle 1 · Wrist 3**. The middle ring is almost entirely redundant with the elbow and wrist rings (mean inter-channel correlation = 0.84). The largest cluster groups 6 anterior forearm channels (E45°–E180°, M90°–M135°) over the same extensor muscle group.
+
+---
+
+### Within-Subject (3-fold CV, 44 subjects)
+
+| Model | 24-ch baseline | 8-ch efficient | Δ |
+|-------|:--------------:|:--------------:|--:|
+| **EMG_TCN** | **96.44%** ±2.91% | **95.00%** ±4.43% | −1.44% |
+| SVM (RBF) | 96.31% ±4.01% | 93.93% ±5.29% | −2.38% |
+| ShallowConvNet | 92.19% ±4.46% | 89.00% ±6.37% | −3.19% |
+| EEGNet | 85.80% ±8.28% | 81.39% ±7.39% | −4.41% |
+| FeatureMLP | 71.82% ±11.62% | 64.32% ±11.40% | −7.50% |
+| putEMG paper | ~90% | — | — |
+
+### Cross-Subject LOSO (44/44 folds)
+
+| Model | 24-ch baseline | 8-ch efficient | Δ |
+|-------|:--------------:|:--------------:|--:|
+| **EMG_TCN** | **84.80%** ±11.56% | **83.37%** ±11.83% | −1.43% |
+| ShallowConvNet | 83.92% ±10.13% | 80.42% ±10.73% | −3.50% |
+| EEGNet | 83.41% ±11.07% | 80.02% ±11.06% | −3.39% |
+| SGD_SVM | 69.07% ±14.79% | 62.59% ±10.83% | −6.48% |
+| FeatureMLP | 67.89% ±13.47% | 53.34% ±10.67% | −14.55% |
+
+**Key findings:**
+- EMG_TCN retains **98.5% of within-subject** and **98.3% of cross-subject** accuracy at one-third the electrode count
+- The DL drop is ≤1.5 pp for EMG_TCN — the channel reduction is essentially free for the best model
+- The middle ring is structurally redundant; dropping 7 of 8 middle-ring channels costs almost nothing
+- FeatureMLP is most sensitive to channel reduction (−14.6% cross-subject), tied to the drop from 984 to 328 features/window
+
+---
+
+## Pipeline
+
+```
+CSV recordings
+  │
+  ▼  MATLAB  data_preprocessing/matlab/put_emg_driver.m
+     CSV → gesture segmentation → 24-ch → combinedCell .mat
+  │
+  ▼  Python  data_preprocessing/driver.ipynb + src/preprocessing.py
+     Bandpass 20–700 Hz · Notch 30/50/60/90/150 Hz · Resample 1500 samples · Z-score
+     → data/processed gestures/{train,eval}/emg_gestures_SS_U.npz  (N × 24 × 1500)
+  │
+  ├──[DL path]──────────────────────────────────────────────────────────────────────
+  │  Input: (batch, 1, 24, 1500)                         scripts/run_baseline.py
+  │  Models: EEGNet · ShallowConvNet · EMG_TCN           runners.run_within / run_cross
+  │
+  └──[Feature path]─────────────────────────────────────────────────────────────────
+     src/feature_extraction.py
+     Sliding window 250/50 → 26 windows/rep
+     41 libemg features × 24 channels = 984-dim/window (channel-major)
+     → data/features/{train,eval}/features_SS_flat_rep.npz  (N × 25584)
+         │
+         └── Models: SVM (RBF) · SGD_SVM · FeatureMLP    runners.run_within / run_cross
+
+  Phase 3 — Channel clustering (scripts/run_clustering.py)
+     Window-level Pearson correlation → agglomerative k=8 → MI-ranked representative
+     → clustering & analysis/clustering_results.json  (8 selected channel indices)
+
+  Phase 5 — Efficient models (scripts/run_efficient.py)
+     Slice X[:, :, channels, :] → (batch, 1, 8, 1500) for DL
+     Slice feature columns     → (N, 26, 328)         for features
+     run_within_dl · run_within_feat · run_cross_dl · run_cross_feat
+```
 
 ---
 
@@ -28,142 +173,50 @@ The **putEMG** dataset ([Kaczmarek et al., 2019](https://www.mdpi.com/1424-8220/
 
 ```
 putEMG prime/
-├── baseline.ipynb              # all baseline experiments (configure PROTOCOL/APPROACH/MODEL)
-├── clustering.ipynb            # Phase 3: feature-space 24→8 channel selection
-├── efficient.ipynb             # Phase 5: 8-channel models
-├── k.ipynb                     # Colab feature extraction (batch, faster than local)
-│
-├── src/                        # shared Python modules
+├── src/
+│   ├── runners.py              # run_within(type, ...), run_cross(type, ...)
 │   ├── deep_learning_models.py # EEGNet, ShallowConvNet, EMG_TCN
 │   ├── feature_based_models.py # FeatureMLP
-│   ├── feature_extraction.py   # libemg 41-feature extractor (batch_extract_features)
+│   ├── feature_extraction.py   # batch_extract_features (41 libemg features)
 │   ├── housekeeping.py         # loaders, fold splits, majority vote, results writer
 │   ├── preprocessing.py        # bandpass / notch / resample / z-score
-│   ├── runners.py              # run_within, run_cross
 │   └── trainer.py              # train, evaluate
 │
 ├── scripts/
-│   ├── run_baseline.py         # entry point for all baseline experiments
-│   ├── run_clustering.py       # Phase 3 runner
-│   └── run_efficient.py        # Phase 5 runner
-│
-├── data_preprocessing/
-│   ├── matlab/                 # CSV → per-subject combinedCell .mat (put_emg_driver.m)
-│   └── driver.ipynb            # preprocessing entry point (Google Colab)
-│
-├── csv_data/                   # raw CSV recordings, one folder per subject
-│   └── subject_NN/
+│   ├── run_baseline.py         # Phase 1 & 2: calls runners.run_within / run_cross
+│   ├── run_clustering.py       # Phase 3: window-level correlation clustering
+│   └── run_efficient.py        # Phase 5: run_within_dl/feat, run_cross_dl/feat
 │
 ├── data/
 │   ├── processed gestures/     # {train,eval}/emg_gestures_SS_U.npz  (N × 24 × 1500)
-│   ├── features/               # {train,eval}/features_SS_flat_rep.npz  (N × 25584)
-│   └── unprocessed gestures/   # intermediate .mat outputs
+│   └── features/               # {train,eval}/features_SS_flat_rep.npz  (N × 25584)
 │
 ├── weights/
-│   ├── baseline/
-│   │   ├── within_dl/          # per-subject .pt  (EEGNet, ShallowConvNet, EMG_TCN)
-│   │   ├── within_feat/        # per-subject .pt  (SVM, FeatureMLP)
-│   │   ├── cross_dl/           # per-LOSO-fold .pt  (EEGNet, ShallowConvNet, EMG_TCN)
-│   │   └── cross_feat/         # per-LOSO-fold .pt  (SGD_SVM, FeatureMLP)
-│   └── efficient/              # Phase 5 weights (8-channel models)
+│   ├── baseline/               # {within_dl,within_feat,cross_dl,cross_feat}/{model}/{sid}.pt
+│   └── efficient/              # same layout, 8-channel models
 │
 ├── results/
 │   ├── baseline/               # results_baseline_{within,cross}_{DL,feature}_{model}.txt
-│   └── efficient/              # Phase 5 results
+│   └── efficient/              # results_efficient_{within,cross}_{DL,feature}_{model}.txt
 │
-├── clustering & analysis/      # Phase 3/4 outputs
-│   ├── feat_representative_channels.npy   # (8,) selected channel indices [after Phase 3]
-│   └── feat_cluster_labels.npy            # (24,) cluster assignments
+├── clustering & analysis/
+│   ├── clustering_results.json            # selected channels + cluster breakdown
+│   ├── feat_representative_channels.npy   # (8,) 0-indexed
+│   ├── feat_cluster_labels.npy            # (24,) cluster assignments
+│   ├── dendrogram.png
+│   ├── correlation_heatmap.png
+│   └── silhouette_sweep.png
+│
+├── data_preprocessing/
+│   ├── matlab/                 # put_emg_driver.m: CSV → .mat
+│   └── driver.ipynb            # Python preprocessing (Colab)
 │
 └── docs/
     ├── plan.txt                # full 7-phase research plan with status
-    └── project_summary.txt     # results, pipeline details, pending work
+    ├── project_summary.txt     # methodology, results, references
+    ├── paper.tex               # ICML-format paper
+    └── paper.bib               # BibTeX references
 ```
-
----
-
-## Pipeline
-
-```
-csv_data/subject_NN/
-   │
-   ▼  [MATLAB]  data_preprocessing/matlab/put_emg_driver.m
-      CSV → detect gesture blocks → extract 24 channels → combinedCell .mat
-   │
-   ▼  [Python]  data_preprocessing/driver.ipynb + src/preprocessing.py
-      Bandpass 20–700 Hz (Butterworth order 4, zero-phase)
-      Notch filters: 30, 50, 60, 90, 150 Hz  (IIR notch Q=30, zero-phase)
-      Resample → 1500 samples/rep
-      Z-score per channel
-      → data/processed gestures/{train,eval}/emg_gestures_SS_U.npz  (N × 24 × 1500)
-   │
-   ├── [Deep Learning]  src/runners.py → run_within / run_cross
-   │   Input shape: (batch, 1, 24, 1500)
-   │   Models: EEGNet, ShallowConvNet, EMG_TCN
-   │
-   └── [Feature Extraction]  src/feature_extraction.py
-       Sliding window: size=250 samples (~49 ms), shift=50 → 26 windows/rep
-       41 single-scalar libemg features × 24 channels = 984-dim/window  (channel-major)
-       → data/features/{train,eval}/features_SS_flat_rep.npz  (N × 25584)
-           │
-           └── [Feature-Based]  src/runners.py → run_within / run_cross
-               Within: SVM (RBF, C=50) + FeatureMLP — window-level, majority vote
-               Cross:  SGD_SVM (hinge loss) + FeatureMLP — window-level, majority vote
-```
-
----
-
-## Results
-
-### Within-Subject (3-fold CV, 44 subjects)
-
-| Model              | Mean Acc   | Std      | Best fold          | Worst fold         |
-|--------------------|------------|----------|--------------------|--------------------|
-| **EMG_TCN**        | **96.44%** | ±2.91%   | Subj 42 (99.63%)   | Subj 06 (83.99%)   |
-| **SVM** (RBF)      | **96.31%** | ±4.01%   | Subj 24 (99.64%)   | Subj 06 (76.62%)   |
-| ShallowConvNet     | 92.19%     | ±4.46%   | Subj 49 (96.69%)   | Subj 06 (72.38%)   |
-| EEGNet             | 85.80%     | ±8.28%   | Subj 48 (95.66%)   | Subj 06 (45.07%)   |
-| FeatureMLP         | 71.82%     | ±11.62%  | Subj 29 (89.28%)   | Subj 51 (40.61%)   |
-| putEMG paper       | ~90%       | —        | —                  | —                  |
-
-### Cross-Subject LOSO (44/44 folds)
-
-| Model              | Mean Acc   | Std      | Best fold          | Worst fold         |
-|--------------------|------------|----------|--------------------|--------------------|
-| **EMG_TCN**        | **84.80%** | ±11.56%  | Subj 53 (98.52%)   | Subj 17 (55.94%)   |
-| ShallowConvNet     | 83.92%     | ±10.13%  | Subj 33 (98.18%)   | Subj 26 (57.04%)   |
-| EEGNet             | 83.41%     | ±11.07%  | Subj 38 (98.48%)   | Subj 47 (52.16%)   |
-| **SGD_SVM**        | **69.07%** | ±14.79%  | Subj 33 (92.73%)   | Subj 06 (35.00%)   |
-| FeatureMLP         | 67.89%     | ±13.47%  | Subj 14 (94.10%)   | Subj 06 (39.67%)   |
-
-Key observations:
-- DL models cluster tightly (~84%); all exceed within-subject putEMG benchmark cross-subject
-- ~10–12 pp std across all models: some subjects near-perfect (>98%), others near-chance (<55%)
-- Subject 06 is hardest across all models; Subject 33 is easiest
-- Feature-based cross-subject gap is large (SGD_SVM 69% vs SVM within 96%) — inter-subject variance not handled by a global linear boundary without per-subject normalization
-
----
-
-## How to Run
-
-### 1. MATLAB Preprocessing
-```matlab
-% Set data paths in put_emg_driver.m, then:
-run('data_preprocessing/matlab/put_emg_driver.m')
-```
-
-### 2. Python Signal Preprocessing
-Run `data_preprocessing/driver.ipynb` (Colab or local).
-
-### 3. Feature Extraction
-Run `k.ipynb` on Colab (faster) or locally via `test.py`.
-
-### 4. Baselines (DL + Feature-based)
-```bash
-# edit scripts/run_baseline.py to select protocol/model, then:
-python scripts/run_baseline.py
-```
-Or use `baseline.ipynb` for interactive Colab runs.
 
 ---
 
@@ -180,8 +233,10 @@ pip install scipy numpy matplotlib scikit-learn torch libemg seaborn
 
 ## References
 
-- Kaczmarek, P., Mankowski, T., Tomczynski, J. (2019). **putEMG — A Surface Electromyography Hand Gesture Recognition Dataset.** *Sensors, 19*(16), 3548. https://doi.org/10.3390/s19163548
-- Lawhern, V. J., et al. (2018). **EEGNet: A Compact Convolutional Neural Network for EEG-based BCIs.** *Journal of Neural Engineering.* https://arxiv.org/abs/1611.08024
-- Schirrmeister, R. T., et al. (2017). **Deep Learning with CNNs for EEG Motor Imagery Decoding.** *Human Brain Mapping.* https://doi.org/10.1002/hbm.23730
-- putEMG dataset: https://biolab.put.poznan.pl/putemg-dataset/
+- Kaczmarek, P., Mankowski, T., Tomczynski, J. (2019). **putEMG — A Surface Electromyography Hand Gesture Recognition Dataset.** *Sensors 19*(16), 3548. https://doi.org/10.3390/s19163548
+- Lawhern, V. J., et al. (2018). **EEGNet: A Compact Convolutional Neural Network for EEG-based BCIs.** *Journal of Neural Engineering.* https://doi.org/10.1088/1741-2552/aace8c
+- Schirrmeister, R. T., et al. (2017). **Deep Learning with CNNs for EEG Decoding.** *Human Brain Mapping.* https://doi.org/10.1002/hbm.23730
+- Qu, Y., et al. (2021). **Reduce sEMG Channels for Gesture Recognition by mRMR.** *Journal of Healthcare Engineering.* https://doi.org/10.1155/2021/9929684
+- Scheme, E., Englehart, K. (2020). **Automated Channel Selection in HD-sEMG.** *Sensors 20*(19), 5679. https://doi.org/10.3390/s20195679
 - libemg: https://github.com/libemg/libemg
+- putEMG dataset: https://biolab.put.poznan.pl/putemg-dataset/

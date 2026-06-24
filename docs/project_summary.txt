@@ -1,6 +1,6 @@
 putEMG Prime — Project Summary
 ================================
-Last updated: 2026-06-13
+Last updated: 2026-06-16
 
 ================================================================================
 OVERVIEW
@@ -129,10 +129,10 @@ Cross-Subject — LOSO (Phase 2)
 
 
 ================================================================================
-RESULTS (as of 2026-06-13)  — ALL BASELINES COMPLETE
+RESULTS (as of 2026-06-16)  — PHASES 1–3 AND 5 COMPLETE
 ================================================================================
 
---- Within-Subject (3-fold CV, 44 subjects) ---
+--- Baseline: Within-Subject (3-fold CV, 44 subjects, 24 channels) ---
 
   Model           Mean Acc    Std        Best fold             Worst fold
   EMG_TCN          96.44%    ±2.91%     Subj 42 (99.63%)      Subj 06 (83.99%)  ← best DL
@@ -142,7 +142,7 @@ RESULTS (as of 2026-06-13)  — ALL BASELINES COMPLETE
   FeatureMLP       71.82%    ±11.62%    Subj 29 (89.28%)      Subj 51 (40.61%)
   putEMG paper     ~90.00%   —
 
---- Cross-Subject LOSO (44/44 folds) ---
+--- Baseline: Cross-Subject LOSO (44/44 folds, 24 channels) ---
 
   Model           Mean Acc    Std        Best fold             Worst fold
   EMG_TCN          84.80%    ±11.56%    Subj 53 (98.52%)      Subj 17 (55.94%)  ← best DL
@@ -158,40 +158,95 @@ RESULTS (as of 2026-06-13)  — ALL BASELINES COMPLETE
   - Feature-based cross-subject gap: SGD_SVM 69% vs SVM within-subject 96% — large drop
   - Subject 06 consistently hardest across all models; Subject 33 consistently easiest
 
+--- Efficient (8-channel): Within-Subject vs Baseline ---
+
+  Model           24-ch baseline   8-ch efficient   Δ
+  EMG_TCN              96.44%          95.00%       −1.44%   ← best DL
+  ShallowConvNet        92.19%          89.00%       −3.19%
+  EEGNet                85.80%          81.39%       −4.41%
+  SVM (RBF)             96.31%          93.93%       −2.38%   ← best feature
+  FeatureMLP            71.82%          64.32%       −7.50%
+
+--- Efficient (8-channel): Cross-Subject LOSO vs Baseline ---
+
+  Model           24-ch baseline   8-ch efficient   Δ
+  EMG_TCN              84.80%          83.37%       −1.43%   ← best DL
+  ShallowConvNet        83.92%          80.42%       −3.50%
+  EEGNet                83.41%          80.02%       −3.39%
+  SGD_SVM               69.07%          62.59%       −6.48%
+  FeatureMLP            67.89%          53.34%      −14.55%
+
+  Key finding: EMG_TCN retains 98.5% of its within-subject accuracy and 98.3% of
+  its cross-subject accuracy with one-third the electrodes (8 vs 24), validating
+  the clustering-based channel selection. FeatureMLP is most sensitive to the
+  feature count reduction (984 → 328 dims), especially cross-subject.
+
 
 ================================================================================
-PENDING WORK  (Phases 1 & 2 complete as of 2026-06-13)
+CHANNEL SELECTION — PHASE 3 METHODOLOGY
 ================================================================================
 
-Phase 3 — Channel clustering (24 → 8)
-  Notebook  : clustering & analysis/clustering_features.ipynb
-  Method    : Feature-space Pearson correlation + agglomerative Ward clustering (k=8)
-              Medoid selection per cluster; silhouette sweep to validate k=8
-  Output    : feat_representative_channels.npy, feat_cluster_labels.npy
-  Status    : Notebook to be written
+Goal: identify 8 physical electrode positions (from 24) that capture the most
+information with minimum inter-channel redundancy — suitable for a fixed-layout
+wearable sleeve.
+
+Method: window-level Pearson correlation → agglomerative clustering → MI selection
+Entry : scripts/run_clustering.py
+
+  Step 1 — Consensus redundancy matrix
+    For each of the 41 per-channel features, compute the 24×24 Pearson correlation
+    matrix across all ~311k windows (all 44 subjects × 26 windows/rep).  Average
+    over all 41 features → one consensus (24, 24) redundancy matrix.
+    Mean off-diagonal correlation: 0.84 — channels are highly redundant overall.
+
+    Rationale: correlating at the window level (not via per-channel mean vectors)
+    preserves gesture-conditional covariation. Two channels with identical means but
+    different activation patterns across gestures would be incorrectly grouped by
+    the mean approach; window-level correlation catches this.
+
+  Step 2 — Agglomerative clustering (k=8)
+    Distance = 1 − r; average linkage; silhouette sweep k=4–12.
+    Best silhouette at k=7 (score 0.283); k=8 used to match hardware target.
+    Silhouette at k=8 = 0.249 — reasonable fit, one cluster is a mild forced split.
+
+  Step 3 — MI-ranked representative selection
+    Within each cluster, compute mean MI(channel features, gesture labels) across
+    all 41 features. Select the highest-MI channel as the cluster representative.
+    This combines redundancy control (from clustering) with informativeness
+    maximisation (from MI) — neither alone is sufficient.
+
+  Selected channels (0-indexed): [0, 1, 5, 7, 14, 16, 19, 22]
+  Labels: E0°, E45°, E225°, E315°, M270°, W0°, W135°, W270°
+  Ring coverage: Elbow 4, Middle 1, Wrist 3 (all three rings represented)
+
+  Notable clusters:
+    Cluster 3 (6 channels): E45°, E90°, E135°, E180°, M90°, M135° — all anterior
+    forearm electrodes; collapsed to representative E45° (highest MI = 0.092).
+    The middle ring (ch 8–15) is almost entirely dropped; only M270° survives.
+    This is anatomically consistent: the middle ring records a weighted mix of
+    what the elbow and wrist rings already capture.
+
+  Methodological references: see REFERENCES section.
+
+
+================================================================================
+PENDING WORK  (Phases 1–3 and 5 complete as of 2026-06-16)
+================================================================================
 
 Phase 4 — Anatomical validation of clusters
-  Notebook  : clustering & analysis/anatomical_validation.ipynb
-  Output    : Forearm ring diagram annotated with muscle groups and selected channels
-  Status    : Pending Phase 3
-
-Phase 5a — Reduced-channel deep learning (8-channel LOSO)
-  Notebook  : efficient.ipynb
-  Depends on: Phase 3 output files
-  Status    : To be written
-
-Phase 5b — Reduced-channel feature-based
-  Notebook  : efficient.ipynb (column-slice of channel-major features → 41×8=328/window)
-  Status    : To be written
+  Cross-reference clusters with putEMG electrode-to-muscle-group mapping.
+  Produce an annotated forearm ring diagram.
+  Status : Not started
 
 Phase 6 — Per-subject, per-class accuracy analysis
-  Notebook  : clustering & analysis/per_class_accuracy.ipynb
-  Load saved checkpoints, run forward pass, build subjects × classes matrix
-  Goal      : Identify which gestures are hardest to generalize
-  Status    : Not started
+  Load saved checkpoints for both baseline and efficient models.
+  Build subjects × classes accuracy matrix for each model.
+  Goal: identify which gestures are hardest to generalize, and whether the
+  8-channel model drops specific gestures more than others.
+  Status : Not started
 
 Phase 7 — Real-time data collection  [FUTURE]
-  Evaluate system on live sEMG streams; details TBD after Phases 1–5 complete
+  Evaluate system on live sEMG streams; details TBD after Phase 6 complete.
 
 
 ================================================================================
@@ -247,9 +302,13 @@ putEMG prime/
 REFERENCES
 ================================================================================
 
+  --- Dataset & Benchmark ---
+
   Kaczmarek, P., Mankowski, T., Tomczynski, J. (2019).
     putEMG — A Surface Electromyography Hand Gesture Recognition Dataset.
     Sensors, 19(16), 3548. https://doi.org/10.3390/s19163548
+
+  --- Deep Learning Models ---
 
   Lawhern, V. J., et al. (2018).
     EEGNet: A Compact Convolutional Neural Network for EEG-based BCIs.
@@ -258,6 +317,28 @@ REFERENCES
   Schirrmeister, R. T., et al. (2017).
     Deep Learning with CNNs for EEG Motor Imagery Decoding.
     Human Brain Mapping. https://doi.org/10.1002/hbm.23730
+
+  --- Channel Selection (Phase 3) ---
+
+  Qu, Y., et al. (2021).
+    Reduce Surface Electromyography Channels for Gesture Recognition by Multitask
+    Sparse Representation and Minimum Redundancy Maximum Relevance.
+    Journal of Healthcare Engineering. https://doi.org/10.1155/2021/9929684
+    PMC: https://pmc.ncbi.nlm.nih.gov/articles/PMC8177973/
+    Relevance: established that channel selection must jointly maximise MI relevance
+    AND minimise inter-channel redundancy (mRMR principle). Informed the decision
+    to use clustering for redundancy control rather than pure MI top-k ranking.
+
+  Scheme, E., et al. (2020).
+    Automated Channel Selection in High-Density sEMG for Improved Force Estimation.
+    Sensors, 20(19), 5679. https://doi.org/10.3390/s20195679
+    PMC: https://pmc.ncbi.nlm.nih.gov/articles/PMC7576492/
+    Relevance: introduced the Power-Correlation Ratio (PCR), which explicitly
+    averages Pearson correlation coefficients of each channel against all others
+    across recording windows to estimate inter-channel redundancy. Directly
+    supported our window-level (not mean-vector-level) correlation approach.
+
+  --- Tools & Libraries ---
 
   putEMG dataset: https://biolab.put.poznan.pl/putemg-dataset/
   libemg library: https://github.com/libemg/libemg

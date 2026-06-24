@@ -1,6 +1,6 @@
 putEMG Prime — Project Plan
 ============================
-Last updated: 2026-06-13
+Last updated: 2026-06-16
 
 Goal: Build a generalizable, channel-efficient sEMG gesture recognition system using
 the putEMG dataset. The project progresses from within-subject baselines to full
@@ -67,26 +67,58 @@ Train models that generalize to completely unseen subjects using Leave-One-Subje
 --------------------------------------------------------------------------------
 Phase 3 — Channel Clustering
 Folder : clustering & analysis/
-Status : NOT YET RUN
+Status : COMPLETE (2026-06-15)
+Entry  : scripts/run_clustering.py
 --------------------------------------------------------------------------------
 
 24 channels is too many for a practical, wearable BCI. The goal is to reduce the
 electrode count to 8 representative channels without a significant loss of accuracy.
-Only feature-space clustering is used — raw-signal clustering was found to be less
-informative and has been archived.
 
-  clustering.ipynb — feature-space correlation clustering
-    - Loads all subjects' pre-extracted feature data (N_reps × 26 × 984)
-    - Separates per-channel feature vectors: shape (N_total_windows, 24, 41)
-      (channel-major layout → channel c is columns [c*41 : (c+1)*41], a clean slice)
-    - Computes per-channel mean signature: (24, 41) matrix
-    - Computes 24×24 Pearson correlation matrix between channel signatures
-    - Applies agglomerative hierarchical clustering (Ward linkage) → k=8 clusters
-    - Silhouette sweep over k=4–12 to validate k=8 is reasonable
-    - Selects medoid per cluster (most central channel in feature space)
-    - Visualizations: dendrogram, 24×24 heatmap, forearm ring layout
-    - Saves: feat_representative_channels.npy  (8,) 0-indexed
+Method: window-level Pearson correlation → agglomerative clustering → MI-ranked
+representative selection.  Two methodological decisions were validated against
+the channel-selection literature before implementation:
+
+  1. Why window-level correlation, not mean feature vectors
+     Computing a per-channel mean feature vector over all windows and subjects
+     collapses gesture-conditional variation — two channels with identical means
+     but different activation patterns per gesture would be incorrectly grouped.
+     Instead, for each of the 41 features the 24×24 Pearson correlation matrix is
+     computed across all ~311k windows, then averaged over features.  This captures
+     which channels co-vary across gestures (i.e. true signal redundancy).
+     Supported by: Automated HD-sEMG Channel Selection (Scheme et al., 2020),
+     which explicitly averages cross-channel Pearson coefficients over windows.
+
+  2. Why correlation clustering + MI representative, not pure MI ranking
+     Pure MI ranking (original plan) selects the top-8 most informative channels
+     regardless of redundancy — it could pick 6 channels from the same muscle group.
+     The Minimum Redundancy Maximum Relevance (mRMR) literature (Qu et al., 2021)
+     establishes that channel selection must jointly maximise relevance AND minimise
+     inter-channel redundancy.  Our approach handles this structurally: clustering
+     enforces one channel per redundancy group; MI then picks the best member.
+
+  Pipeline (scripts/run_clustering.py):
+    - Load all 44 subjects' precomputed feature files (310,934 total windows)
+    - Reshape to (N_windows, 24, 41); no re-extraction needed (channel-major layout)
+    - For each of 41 features: compute 24×24 Pearson corr across all windows
+    - Average → consensus redundancy matrix (mean off-diagonal r = 0.84)
+    - Symmetrise before hierarchical decomposition (float accumulation fix)
+    - Agglomerative clustering (average linkage, precomputed distance = 1 − r)
+    - Silhouette sweep k=4–12: best = k=7 (score 0.283); k=8 used (hardware target)
+    - Within each cluster: select channel with highest mean MI to gesture labels
+    - Saves: feat_representative_channels.npy  (8,)  0-indexed → [0,1,5,7,14,16,19,22]
              feat_cluster_labels.npy           (24,) cluster assignments
+             feat_channel_mi.npy               (24,) MI per channel
+             feat_channel_corr.npy             (24,24) consensus correlation matrix
+             clustering_results.json           human-readable (loaded by run_efficient.py)
+             silhouette_sweep.png / correlation_heatmap.png / dendrogram.png
+
+  Results:
+    Selected channels (0-indexed): [0, 1, 5, 7, 14, 16, 19, 22]
+    Labels: E0°, E45°, E225°, E315°, M270°, W0°, W135°, W270°
+    Ring coverage: Elbow 4/8, Middle 1/8, Wrist 3/8 (all three rings represented)
+    Notable: middle ring almost entirely dropped (redundant with elbow + wrist rings);
+    cluster 3 collapsed 6 channels [E45°–E180°, M90°–M135°] into one representative,
+    consistent with those electrodes lying over the same anterior forearm muscle group.
 
 --------------------------------------------------------------------------------
 Phase 4 — Anatomical Validation of Clusters
@@ -104,29 +136,48 @@ described in the original putEMG paper.
 
 --------------------------------------------------------------------------------
 Phase 5 — Reduced-Channel Model
-Notebook : efficient.ipynb
-Status : NOT YET RUN (depends on Phase 3)
+Entry  : scripts/run_efficient.py
+Status : COMPLETE (2026-06-16)
 --------------------------------------------------------------------------------
 
-Retrain the cross-subject baseline models using only the 8 channels identified in
-Phase 3, and measure accuracy loss vs the 24-channel baseline.
+Retrain all baseline models using only the 8 channels identified in Phase 3.
+Channels loaded from clustering_results.json; data sliced via existing channels=
+kwarg in _load_combined_subject / _load_combined_feature_subject (no re-extraction
+needed for features — channel-major layout makes this a clean column slice,
+41 × 8 = 328 features/window vs 984 baseline).
 
-  a) Deep learning version
-     Notebook: efficient.ipynb
-     - Loads feat_representative_channels.npy from clustering & analysis/
-     - Slices X[:, :, channels, :] → input shape (N, 1, 8, 1500)
-     - Same LOSO loop, checkpointing, and logging as the 24-channel DL baseline
-     - Final cell compares 8-channel vs 24-channel accuracy side-by-side
+  a) Deep learning (within-subject + LOSO)
+     - Loads clustering_results.json → slices X[:, :, channels, :] → (N, 1, 8, 1500)
+     - Model instantiated with num_channels=8 (auto-derived from data shape)
+     - Same 3-fold CV (within) and LOSO (cross) protocol as baseline
      - Models: EMG_TCN, EEGNet, ShallowConvNet
+     - Weights: weights/efficient/{within_dl,cross_dl}/{model}/{sid}.pt
 
-  b) Feature-based version
-     Notebook: efficient.ipynb
-     - Same pipeline on 8 channels; SVM (C=50) + FeatureMLP
-     - Channel-major layout makes this a column slice of the 24-channel features:
-       41 features × 8 channels = 328-dim per window (no re-extraction needed)
+  b) Feature-based (within-subject + LOSO)
+     - 41 × 8 = 328-dim per window (column slice, no re-extraction)
+     - Within: SVM (RBF, C=50), FeatureMLP
+     - Cross : SGD_SVM (hinge loss, full pool), FeatureMLP
+     - Weights: weights/efficient/{within_feat,cross_feat}/{model}/{sid}.pt
 
-  Target: match or closely approach the 24-channel cross-subject baseline
-          accuracy with one-third the electrode count.
+  Results — Within-Subject (3-fold CV, 44 subjects):
+    Model           24-ch baseline   8-ch efficient   Δ
+    EMG_TCN              96.44%          95.00%       −1.44%   ← best DL
+    ShallowConvNet        92.19%          89.00%       −3.19%
+    EEGNet                85.80%          81.39%       −4.41%
+    SVM (RBF)             96.31%          93.93%       −2.38%   ← best feature
+    FeatureMLP            71.82%          64.32%       −7.50%
+
+  Results — Cross-Subject LOSO (44/44 folds):
+    Model           24-ch baseline   8-ch efficient   Δ
+    EMG_TCN              84.80%          83.37%       −1.43%   ← best DL
+    ShallowConvNet        83.92%          80.42%       −3.50%
+    EEGNet                83.41%          80.02%       −3.39%
+    SGD_SVM               69.07%          62.59%       −6.48%
+    FeatureMLP            67.89%          53.34%      −14.55%
+
+  Key finding: EMG_TCN retains 98.5% of its baseline accuracy (within) and 98.3%
+  (LOSO) with one-third the electrodes, validating the channel selection approach.
+  FeatureMLP cross-subject suffers most (−14.6%), sensitive to feature count.
 
 --------------------------------------------------------------------------------
 Phase 6 — Per-Subject Per-Class Analysis

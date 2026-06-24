@@ -20,3 +20,9 @@ weights/
 *.mat
 *.npy
 *.npz
+
+
+# paper
+docs/paper.bib
+docs/paper.tex
+
